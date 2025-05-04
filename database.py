@@ -1,7 +1,6 @@
 import sqlite3
 import time # For Unix timestamps
-# Consider adding password hashing library
-# import bcrypt
+# import bcrypt # For password hashing
 
 DATABASE_FILE = 'chat_app.db'
 
@@ -13,7 +12,7 @@ def initialize_database():
         cursor = conn.cursor()
         print("Database connection established.")
 
-        # Enable Foreign Key support (important!)
+        # Enable Foreign Keys 
         cursor.execute("PRAGMA foreign_keys = ON;")
 
         # Create users table
@@ -35,7 +34,6 @@ def initialize_database():
             admin_user_id INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
             FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE 
-            -- ON DELETE CASCADE means if the admin user is deleted, the server is also deleted. Adjust if needed.
         );
         """)
         print("Checked/Created 'servers' table.")
@@ -49,7 +47,7 @@ def initialize_database():
             joined_at INTEGER NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
             FOREIGN KEY (server_id) REFERENCES servers(server_id) ON DELETE CASCADE,
-            UNIQUE(user_id, server_id) -- Ensure a user can only join a server once
+            UNIQUE(user_id, server_id) 
         );
         """)
         print("Checked/Created 'memberships' table.")
@@ -63,8 +61,7 @@ def initialize_database():
             content TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             FOREIGN KEY (server_id) REFERENCES servers(server_id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE 
-            -- Consider ON DELETE SET NULL for user_id if you want messages to remain after user deletion
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL 
         );
         """)
         print("Checked/Created 'messages' table.")
