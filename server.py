@@ -2,6 +2,7 @@ import socket
 import threading
 import os
 import sys
+import database
 
 clients = {}
 lock = threading.Lock()
@@ -84,4 +85,6 @@ if __name__ == "__main__":
     print(sys.argv[1])
     port = int(sys.argv[1])
     os.system('cls' if os.name == 'nt' else 'clear')
+    print("Initializing database")
+    database.initialize_database()
     init_server(port)
