@@ -2,15 +2,20 @@ import socket
 import os
 import threading
 import sys
-import getpass # To hide password input
 import json
-import time
+import getpass
+import time 
 
 def send_json_client(sock, data_dict):
     try:
         message = json.dumps(data_dict)
         sock.sendall(message.encode('utf-8'))
         return True
+    except BrokenPipeError:
+        print("CLIENT: Broken pipe. Server connection lost.")
+        global running
+        running = False
+        return False
     except Exception as e:
         print(f"CLIENT: Error sending JSON: {e}")
         return False
@@ -18,192 +23,361 @@ def send_json_client(sock, data_dict):
 def receive_json_client(sock):
     try:
         data_bytes = sock.recv(1024)
-        if not data_bytes: return None
+        if not data_bytes: 
+            print("CLIENT: Connection closed by server (received empty data).")
+            return None
         return json.loads(data_bytes.decode('utf-8'))
-    except json.JSONDecodeError:
-        print("CLIENT: Received malformed JSON from server.")
-        return {"status": "error", "message": "Malformed JSON from server."} # Or handle differently
+    except json.JSONDecodeError as je:
+        print(f"CLIENT: Received malformed JSON from server. Error: {je}")
+        return {"status": "error", "message": "Malformed JSON from server."}
     except ConnectionResetError:
         print("CLIENT: Connection reset by server during receive.")
+        return None
+    except ConnectionAbortedError:
+        print("CLIENT: Connection aborted during receive.")
+        return None
+    except socket.timeout:
+        print("CLIENT: Socket receive timeout.")
         return None
     except Exception as e:
         print(f"CLIENT: Error receiving JSON: {e}")
         return None
 
-running = True # Global flag for threads
-authenticated_user_details = None # Store {'user_id': id, 'username': name}
+running = True 
+authenticated_user_details = None # Stores {'user_id': id, 'username': name}
+current_server_context_name = "Global" # Default context name for the prompt
+client_active_server_id = None # <<<< NEW: Stores the ID of the server client is currently in
 
-def sendingThread(sock): # No longer needs username passed, gets from global
+def format_timestamp(unix_ts):
+    """Helper to format Unix timestamp into a readable string."""
+    if unix_ts is None:
+        return ""
+    try:
+        return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(int(unix_ts)))
+    except:
+        return str(unix_ts) # Fallback
+
+def get_prompt():
+    """Returns the current input prompt."""
+    if authenticated_user_details:
+        return f"({current_server_context_name}) {authenticated_user_details['username']}> "
+    return "> "
+
+def sendingThread(sock):
     global running
     global authenticated_user_details
-    
-    print(f"--- You are logged in as {authenticated_user_details['username']}. Type your message or 'close' to disconnect. ---")
+
+    print(f"\n--- Type /help for commands, or your message to chat. ---")
+    sys.stdout.write(get_prompt()) 
+    sys.stdout.flush()
+
     while running:
         try:
-            message_text = input() # Get raw message text
-            if not running: break # Check flag again, in case changed by receiving thread
+            user_input = input() 
+            if not running: break
 
-            if message_text.lower() == "close":
-                print("CLIENT: Sending disconnect signal...")
-                disconnect_request = {"action": "DISCONNECT"}
-                if send_json_client(sock, disconnect_request):
-                    print("CLIENT: Disconnect signal sent.")
+            request_json = None
+            command_processed = False 
+
+            if user_input.startswith("/"):
+                command_processed = True 
+                parts = user_input.split(maxsplit=2) 
+                command = parts[0].lower()
+                args = parts[1:] if len(parts) > 1 else []
+
+                if command == "/close":
+                    request_json = {"action": "DISCONNECT"}
+                elif command == "/create_server":
+                    if len(args) >= 1:
+                        server_name = " ".join(args)
+                        request_json = {"action": "CREATE_SERVER", "payload": {"server_name": server_name}}
+                    else:
+                        print("CLIENT: Usage: /create_server <server_name>")
+                elif command == "/list_servers":
+                    request_json = {"action": "LIST_ALL_SERVERS"}
+                elif command == "/my_servers":
+                    request_json = {"action": "LIST_MY_SERVERS"}
+                elif command == "/join_server":
+                    if len(args) == 1:
+                        try:
+                            server_id = int(args[0])
+                            request_json = {"action": "JOIN_SERVER", "payload": {"server_id": server_id}}
+                        except ValueError:
+                            print("CLIENT: Invalid server ID. Must be a number.")
+                    else:
+                        print("CLIENT: Usage: /join_server <server_id>")
+                elif command == "/leave_server":
+                    if len(args) == 1:
+                        try:
+                            server_id = int(args[0])
+                            request_json = {"action": "LEAVE_SERVER", "payload": {"server_id": server_id}}
+                        except ValueError:
+                            print("CLIENT: Invalid server ID. Must be a number.")
+                    else:
+                        print("CLIENT: Usage: /leave_server <server_id>")
+                elif command == "/enter_server":
+                    if len(args) == 1:
+                        try:
+                            server_id = int(args[0])
+                            request_json = {"action": "ENTER_SERVER", "payload": {"server_id": server_id}}
+                        except ValueError:
+                            print("CLIENT: Invalid server ID. Must be a number.")
+                    else:
+                        print("CLIENT: Usage: /enter_server <server_id>")
+                elif command == "/help":
+                    print("\nCLIENT: Available commands:")
+                    print("  /create_server <name>   - Create a new server.")
+                    print("  /list_servers           - List all available servers.")
+                    print("  /my_servers             - List servers you are a member of.")
+                    print("  /join_server <id>       - Join a server by its ID.")
+                    print("  /enter_server <id>      - Set a server as your active context.")
+                    print("  /leave_server <id>      - Leave a server by its ID.")
+                    print("  /close                  - Disconnect from the chat.")
+                    print("  /help                   - Show this help message.")
+                    print("  (Anything else is a chat message)\n")
                 else:
-                    print("CLIENT: Failed to send disconnect signal.")
-                running = False # Signal other thread and main to stop
-                break
-            else:
-                # Send as a chat message
-                chat_request = {
-                    "action": "SEND_CHAT_MESSAGE",
-                    "payload": {"message": message_text}
-                }
-                if not send_json_client(sock, chat_request):
-                    print("CLIENT: Failed to send chat message. Disconnecting.")
-                    running = False
-                    break
-        except EOFError: # Happens if input stream is closed (e.g. piping input)
-            print("CLIENT: Input stream closed. Disconnecting.")
+                    print(f"CLIENT: Unknown command: {command}. Type /help for commands.")
+                
+                if not request_json and command_processed: 
+                    sys.stdout.write(get_prompt()) 
+                    sys.stdout.flush()
+            else: 
+                if user_input.strip():
+                    request_json = {
+                        "action": "SEND_CHAT_MESSAGE",
+                        "payload": {"message": user_input}
+                    }
+            
+            if request_json:
+                if not send_json_client(sock, request_json):
+                    print("CLIENT: Failed to send request to server. Disconnecting.")
+                    running = False 
+                if request_json.get("action") == "DISCONNECT":
+                    running = False 
+                    break 
+        except EOFError: 
+            print("\nCLIENT: EOF detected. Sending disconnect.")
             running = False
-            # Attempt to send disconnect to server
-            if send_json_client(sock, {"action": "DISCONNECT"}):
-                 print("CLIENT: Disconnect signal sent due to EOF.")
+            send_json_client(sock, {"action": "DISCONNECT"}) 
+            break
+        except KeyboardInterrupt: 
+            print("\nCLIENT: KeyboardInterrupt. Sending disconnect.")
+            running = False
+            send_json_client(sock, {"action": "DISCONNECT"}) 
             break
         except Exception as e:
-            print(f"CLIENT: Error in sending thread: {e}")
+            if running: 
+                print(f"CLIENT: Error in sending thread: {e}")
             running = False
             break
     print("CLIENT: Sending thread stopped.")
 
+
 def receivingThread(sock):
     global running
+    global authenticated_user_details
+    global current_server_context_name
+    global client_active_server_id 
+
     while running:
         try:
             response_data = receive_json_client(sock)
-            if response_data is None: # Connection closed or major error
-                print("CLIENT: Disconnected from server (receive_json returned None).")
+            if response_data is None: 
+                if running: 
+                    print("\rCLIENT: Disconnected from server (receiver).")
                 running = False
                 break
 
-            print(f"CLIENT DEBUG: Raw received: {response_data}") # For debugging
+            prompt_len = len(get_prompt())
+            sys.stdout.write('\r' + ' ' * (prompt_len + 80) + '\r')
 
-            if response_data.get("type") == "NEW_CHAT_MESSAGE":
+            action_response = response_data.get("action_response_to")
+            status = response_data.get("status")
+            message = response_data.get("message", "")
+            data = response_data.get("data", {})
+
+            if action_response: 
+                print(f"SERVER ({action_response} - {status}): {message}")
+                if status == "success":
+                    if action_response in ["LIST_ALL_SERVERS", "LIST_MY_SERVERS"]:
+                        servers = data.get("servers", [])
+                        if servers:
+                            print("  Servers:")
+                            for server_item in servers: 
+                                print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", Admin: {server_item.get('admin_username', 'N/A')}")
+                        else:
+                            print("  No servers to display.")
+                    elif action_response == "CREATE_SERVER":
+                        print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
+                    elif action_response == "ENTER_SERVER":
+                        server_name = data.get("server_name", "UnknownServer")
+                        received_server_id = data.get("current_server_id")
+                
+                        current_server_context_name = server_name 
+                        client_active_server_id = received_server_id 
+                
+                        print(f"  --- Now active in server: '{server_name}' (ID: {client_active_server_id}) ---")
+                
+                        messages_history = data.get("messages", []) 
+                        if messages_history:
+                            print("  --- Recent Messages ---")
+                            for msg_data in messages_history: 
+                                ts = format_timestamp(msg_data.get('timestamp'))
+                                sender = msg_data.get('sender_username', 'Unknown')
+                                content = msg_data.get('content', '') 
+                                print(f"  ({ts}) {sender}: {content}")
+                            print("  --- End of History ---")
+                        else:
+                            print("  No recent messages in this server.")
+            
+            elif response_data.get("type") == "NEW_CHAT_MESSAGE":
                 payload = response_data.get("payload", {})
                 sender = payload.get("sender_username", "Unknown")
-                message = payload.get("message", "")
-                # Simple display, clear previous input line if possible
-                # This \r and end='' trick works well in many terminals
-                print(f"\r{sender}: {message}\n> ", end="") 
-            elif response_data.get("type") == "USER_JOINED":
-                payload = response_data.get("payload", {})
-                print(f"\rSERVER: {payload.get('username')} joined the chat.\n> ", end="")
-            elif response_data.get("type") == "USER_LEFT":
-                payload = response_data.get("payload", {})
-                print(f"\rSERVER: {payload.get('username')} left the chat.\n> ", end="")
-            elif response_data.get("status") == "error": # General error from server
-                print(f"\rSERVER ERROR: {response_data.get('message', 'Unknown error.')}\n> ", end="")
-            # Add more handlers for other broadcast types or specific responses if needed
-            else:
-                # Could be other responses not directly handled here (e.g. from future commands)
-                print(f"\rSERVER MSG: {response_data}\n> ", end="")
+                msg_text = payload.get("message", "")
+                message_server_id = payload.get("server_id")
+                ts = format_timestamp(payload.get('timestamp'))
 
+                if client_active_server_id is None and message_server_id is None: 
+                     print(f"({ts}) {sender}: {msg_text}")
+                elif message_server_id == client_active_server_id:
+                    print(f"({ts}) {sender}: {msg_text}")
+                else:
+                   print(f"CLIENT DEBUG: Ignored message for server {message_server_id}, active is {client_active_server_id}")
+
+            elif response_data.get("type") == "USER_JOINED": 
+                payload = response_data.get("payload", {})
+                # This is a global "joined the system" message, like online status.
+                # Server-specific need more context
+                print(f"SERVER: {payload.get('username')} joined the chat system.")
+            elif response_data.get("type") == "USER_LEFT": 
+                payload = response_data.get("payload", {})
+                # This is a global "left the system" message, like offline status.
+                print(f"SERVER: {payload.get('username')} (ID: {payload.get('user_id')}) left the chat system.")
+            
+            elif status == "error" and not action_response:
+                 print(f"SERVER ERROR: {message}")
+            
+            else: 
+                 if not action_response: 
+                    print(f"SERVER MSG: {message or response_data}")
+
+            sys.stdout.write(get_prompt())
+            sys.stdout.flush()
 
         except Exception as e:
-            print(f"CLIENT: Error in receiving thread: {e}")
-            running = False # Stop on error
+            if running: 
+                print(f"\rCLIENT: Error in receiving thread: {e}")
+            running = False 
             break
     print("CLIENT: Receiving thread stopped.")
 
-
 if __name__ == "__main__":
     os.system('cls' if os.name == 'nt' else 'clear')
-    # ... (port and server_ip setup as before) ...
+    
     if len(sys.argv) < 2:
         print("Usage: python client.py <port>")
         sys.exit(1)
-    port = int(sys.argv[1])
+    try:
+        port = int(sys.argv[1])
+        if not (1024 <= port <= 65535): raise ValueError("Port out of allowed range 1024-65535")
+    except ValueError as e:
+        print(f"Invalid port: {e}")
+        sys.exit(1)
+        
     server_ip = '127.0.0.1'
     s = socket.socket()
+    s.settimeout(10.0) 
+
     try:
+        print(f"CLIENT: Connecting to {server_ip}:{port}...")
         s.connect((server_ip, port))
         print("CLIENT: Connected to server!")
+    except socket.timeout:
+        print(f"CLIENT: Connection attempt to server timed out.")
+        sys.exit(1)
     except Exception as e:
         print(f"CLIENT: Failed to connect: {e}")
         sys.exit(1)
-
-    # Authentication Loop
-    while not authenticated_user_details:
+    
+    s.settimeout(None) 
+    while not authenticated_user_details and running:
         action_choice = input("CLIENT: (L)ogin or (R)egister? ").upper()
+        if not action_choice: continue
+
         username = input("CLIENT: Username: ")
+        if not username: continue
+
         password = getpass.getpass("CLIENT: Password: ")
-
-        if not username or not password:
-            print("CLIENT: Username and password cannot be empty.")
-            continue
+        if not password: continue
         
-        request = None
+        request_auth = None
         if action_choice == 'R':
-            request = {"action": "REGISTER", "payload": {"username": username, "password": password}}
+            request_auth = {"action": "REGISTER", "payload": {"username": username, "password": password}}
         elif action_choice == 'L':
-            request = {"action": "LOGIN", "payload": {"username": username, "password": password}}
+            request_auth = {"action": "LOGIN", "payload": {"username": username, "password": password}}
         else:
-            print("CLIENT: Invalid choice.")
+            print("CLIENT: Invalid choice. Please enter 'L' or 'R'.")
             continue
 
-        if not send_json_client(s, request):
-            print("CLIENT: Failed to send auth request. Exiting.")
-            s.close()
-            sys.exit(1)
+        if not send_json_client(s, request_auth):
+            print("CLIENT: Failed to send authentication request. Exiting.")
+            running = False; break 
+        
+        s.settimeout(5.0) 
+        response_auth = receive_json_client(s)
+        s.settimeout(None)
 
-        response = receive_json_client(s)
-        if response is None:
-            print("CLIENT: Did not receive auth response from server. Exiting.")
-            s.close()
-            sys.exit(1)
+        if response_auth is None:
+            print("CLIENT: Did not receive authentication response from server or connection lost.")
+            running = False; break 
 
-        print(f"CLIENT: Server Auth Response: {response.get('message', 'No message.')} (Status: {response.get('status')})")
+        print(f"CLIENT: Server Auth Response: {response_auth.get('message', 'No message.')} (Status: {response_auth.get('status')})")
 
-        if response.get("status") == "success" and response.get("action_response_to") == "LOGIN":
-            authenticated_user_details = response.get("data") # Should contain user_id, username
-            print(f"CLIENT: Login successful. Welcome {authenticated_user_details['username']}!")
+        if response_auth.get("status") == "success" and response_auth.get("action_response_to") == "LOGIN":
+            authenticated_user_details = response_auth.get("data") 
+            if not authenticated_user_details or 'username' not in authenticated_user_details:
+                print("CLIENT: Login success but user details missing. Exiting.")
+                running = False; break
+            current_server_context_name = "Global" 
+            client_active_server_id = None 
+            print(f"CLIENT: Login successful as {authenticated_user_details['username']}!")
             break 
-        elif response.get("status") == "success" and response.get("action_response_to") == "REGISTER":
-            print("CLIENT: Registration successful. Please login.") # Or auto-login if server supports
-        elif response.get("status") == "error":
-            print(f"CLIENT: Auth Error: {response.get('message', 'Unknown error from server.')}")
-            # Loop continues for retry
-        else:
-            print(f"CLIENT: Unexpected auth response: {response}")
-
-
-    if authenticated_user_details:
-        running = True
-        # Add a small delay for auth messages to clear if needed, or improve prompt handling
-        # time.sleep(0.1) 
-        print("\n> ", end="") # Initial prompt for chat after login
-
+        elif response_auth.get("status") == "success" and response_auth.get("action_response_to") == "REGISTER":
+            print("CLIENT: Registration successful. Please login.")
+        elif response_auth.get("status") == "error":
+             pass
+    
+    if authenticated_user_details and running:
+        print(f"\n--- Welcome {authenticated_user_details['username']}! ---")
+        
         sending_thread = threading.Thread(target=sendingThread, args=(s,))
         receiving_thread = threading.Thread(target=receivingThread, args=(s,))
+
+        sending_thread.daemon = True 
+        receiving_thread.daemon = True
 
         sending_thread.start()
         receiving_thread.start()
 
-        sending_thread.join()
-        # When sending_thread stops (e.g. user types 'close'), 'running' becomes False.
-        # We need to ensure receiving_thread also stops.
-        if receiving_thread.is_alive():
-            print("CLIENT: Attempting to shutdown receiving thread...")
-            # A more robust way to stop a blocking recv() is to close the socket from another thread.
-            # Since 'running' is False, the recv loop should exit on next iteration or error.
-            # Forcibly closing socket if client initiated 'close'
+        while running:
             try:
-                s.shutdown(socket.SHUT_RDWR) # Signal server no more data, and stop receiving
-            except: pass # Ignore if already closed
-            s.close() # Close our end
-            receiving_thread.join(timeout=2.0) # Wait a bit for it to exit
-            if receiving_thread.is_alive():
-                print("CLIENT: Receiving thread did not stop gracefully.")
-    
+                time.sleep(0.1) 
+                if not sending_thread.is_alive() and not receiving_thread.is_alive():
+                    running = False 
+                    break
+            except KeyboardInterrupt:
+                print("\nCLIENT: Ctrl+C detected in main loop. Shutting down.")
+                running = False
+                if s and not s._closed: send_json_client(s, {"action": "DISCONNECT"})
+                break
+        
+        print("CLIENT: Main loop detected threads should stop. Joining threads...")
+        if sending_thread.is_alive(): sending_thread.join(timeout=1.0)
+        if receiving_thread.is_alive(): receiving_thread.join(timeout=1.0)
+            
     print("CLIENT: Disconnected.")
-    if not s._closed: # Check if socket is not already closed
+    if s and not s._closed:
+        try:
+            s.shutdown(socket.SHUT_RDWR) 
+        except OSError: pass 
         s.close()
