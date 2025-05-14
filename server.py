@@ -6,58 +6,96 @@ import sys
 import database # Your database module
 import json
 import time
+import struct
 
-# BUFFER_SIZE = 1024 # Already implicitly used by recv(1024)
+MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
+MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
+
+def receive_all(sock, num_bytes_to_receive):
+    received_data = bytearray()
+    while len(received_data) < num_bytes_to_receive:
+        try:
+            bytes_to_get_now = min(num_bytes_to_receive - len(received_data), 4096) 
+            packet = sock.recv(bytes_to_get_now)
+        except socket.timeout:
+            print(f"SERVER: Socket timeout during receive_all from {sock.getpeername()}.")
+            return None 
+        except ConnectionAbortedError:
+            print(f"SERVER: Connection aborted during receive_all from {sock.getpeername()}.")
+            return None
+        except Exception as e: 
+            print(f"SERVER: Socket error during receive_all from {sock.getpeername()}: {e}")
+            return None
+
+        if not packet:
+            print(f"SERVER: Connection closed by {sock.getpeername()} while expecting more data in receive_all.")
+            return None 
+        received_data.extend(packet)
+    return received_data
 
 def send_json(sock, data_dict):
-    """Safely send a dictionary as a JSON string."""
     try:
-        message = json.dumps(data_dict)
-        sock.sendall(message.encode('utf-8')) # sendall tries to send all data
+        json_bytes = json.dumps(data_dict).encode('utf-8')
+        len_prefix = struct.pack(MSG_LENGTH_PREFIX_FORMAT, len(json_bytes))
+        sock.sendall(len_prefix) 
+        sock.sendall(json_bytes)
         return True
+    except BrokenPipeError:
+        peer_name = "unknown peer"
+        try:
+            peer_name = sock.getpeername()
+        except OSError: pass # Socket might already be closed/invalid
+        print(f"SERVER: Broken pipe while sending to {peer_name}. Client likely disconnected.")
+        return False
     except Exception as e:
-        # Log the error and the socket for which it occurred
-        # print(f"Error sending JSON data to {sock.getpeername() if sock else 'N/A'}: {e}")
-        # print(f"Data that failed to send: {data_dict}")
+        peer_name = "unknown peer"
+        try:
+            peer_name = sock.getpeername()
+        except OSError: pass
+        print(f"SERVER: Error sending JSON data to {peer_name}: {e}")
+        # print(f"SERVER: Data that failed: {data_dict}") # Be cautious logging potentially large/sensitive data
         return False
 
 def receive_json(sock):
-    """Receive data and attempt to parse it as JSON.
-       Handles potential incomplete messages or multiple messages by simple buffering.
-       NOTE: This is a simplified version. For very robust handling of arbitrary length
-       JSON or multiple messages in one recv, a more complex framing protocol
-       (e.g., length prefix or newline delimiters for multiple JSONs) would be needed.
-       For now, we assume one JSON per primary send/recv interaction or that
-       JSON objects are not excessively large to be fragmented often within 1024 bytes.
-    """
+  
+    global running 
     try:
-        data_bytes = sock.recv(1024) # Using the existing buffer size
-        if not data_bytes:
-            return None # Connection closed
-        
-        # Basic attempt to handle potentially multiple JSON objects if they are small and arrive together
-        # This is still not perfectly robust for all scenarios but better than a raw decode.
-        # A better way is proper message framing (length prefix or delimiters).
-        decoded_data = data_bytes.decode('utf-8')
-        
-        # Try to parse directly. If it fails, it might be an incomplete JSON or other error.
-        try:
-            return json.loads(decoded_data)
-        except json.JSONDecodeError as je:
-            # This could be due to incomplete JSON or other data.
-            # For now, we'll log and return None, indicating a parsing failure.
-            # In a more robust system, you'd buffer and wait for more data if incomplete.
-            # print(f"JSONDecodeError for {sock.getpeername() if sock else 'N/A'}: {je} - Data: '{decoded_data}'")
-            # Raise a custom error or return a specific marker if needed by caller
-            return {"status": "error", "message": "Received malformed JSON or incomplete data."}
+        # 1. Receive the 4-byte length prefix
+        len_prefix_bytes = receive_all(sock, MSG_LENGTH_PREFIX_SIZE)
+        if len_prefix_bytes is None:
+            return None 
+
+        # 2. Unpack the length prefix
+        actual_message_length = struct.unpack(MSG_LENGTH_PREFIX_FORMAT, len_prefix_bytes)[0]
+        print(f"SERVER DEBUG: Expecting JSON message of length: {actual_message_length} from {sock.getpeername()}")
+
+        # Limit message size to prevent memory exhaustion attacks if necessary
+        if actual_message_length > 10 * 1024 * 1024: # Example: 10MB limit
+            print(f"SERVER WARNING: Message length {actual_message_length} exceeds limit from {sock.getpeername()}. Closing connection.")
+            sock.close() 
+            return None
 
 
-    except ConnectionResetError:
-        # print(f"Connection reset by peer {sock.getpeername() if sock else 'N/A'} during receive_json.")
-        return None # Indicate connection closed
+        # 3. Receive the actual JSON message data
+        json_message_bytes = receive_all(sock, actual_message_length)
+        if json_message_bytes is None:
+            return None 
+
+        # 4. Decode and parse JSON
+        json_string = json_message_bytes.decode('utf-8')
+        print(f"SERVER DEBUG: Received JSON string: {json_string[:200]}... from {sock.getpeername()}")
+        return json.loads(json_string)
+
+    except struct.error as se:
+        print(f"SERVER: Struct unpack error (bad length prefix or conn issue from {sock.getpeername()}): {se}")
+        return None 
+    except json.JSONDecodeError as je:
+        print(f"SERVER: Failed to decode JSON from {sock.getpeername()}. Error: {je}")
+        print(f"SERVER DEBUG MALFORMED JSON DATA: <{json_message_bytes.decode('utf-8', errors='ignore') if 'json_message_bytes' in locals() else 'Could not decode for debug'}>")
+        return {"status": "error", "message": "Malformed JSON received."} # Send an error JSON back if possible
     except Exception as e:
-        # print(f"Error receiving/decoding JSON data from {sock.getpeername() if sock else 'N/A'}: {e}")
-        return None
+        print(f"SERVER: Critical error in receive_json from {sock.getpeername()}: {e}")
+        return None # General error
 
 
 # Global dictionary to store authenticated clients, keyed by user_id
@@ -223,7 +261,7 @@ class ClientThread(threading.Thread):
                                 "members": member_list_with_status # This list now contains the 'is_admin' flag
                             }
                     else: 
-                        response["message"] = "You must specify a server ID or be active in a server using /enter_server."
+                        response["message"] = "You must specify a server ID or be active in a server using /server_history."
                         
                     send_json(self.client_socket, response)
                     continue 
@@ -309,7 +347,7 @@ class ClientThread(threading.Thread):
                     else:
                         response["message"] = "server_id missing in payload for LEAVE_SERVER."
 
-                elif action == "SERVER_HISTORY": # Was ENTER_SERVER
+                elif action == "SERVER_HISTORY": 
                     server_id_str = payload.get("server_id")
                     if server_id_str is None:
                         response["message"] = "server_id is required for SERVER_HISTORY."

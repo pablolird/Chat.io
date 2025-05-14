@@ -5,11 +5,17 @@ import sys
 import json
 import getpass
 import time 
+import struct
+
+MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
+MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
 
 def send_json_client(sock, data_dict):
     try:
-        message = json.dumps(data_dict)
-        sock.sendall(message.encode('utf-8'))
+        json_bytes = json.dumps(data_dict).encode('utf-8')
+        len_prefix = struct.pack(MSG_LENGTH_PREFIX_FORMAT, len(json_bytes))
+        sock.sendall(len_prefix)
+        sock.sendall(json_bytes)
         return True
     except BrokenPipeError:
         print("CLIENT: Broken pipe. Server connection lost.")
@@ -20,27 +26,65 @@ def send_json_client(sock, data_dict):
         print(f"CLIENT: Error sending JSON: {e}")
         return False
 
-def receive_json_client(sock):
-    try:
-        data_bytes = sock.recv(1024)
-        if not data_bytes: 
-            print("CLIENT: Connection closed by server (received empty data).")
+def receive_all(sock, num_bytes_to_receive):
+    received_data = bytearray()
+    while len(received_data) < num_bytes_to_receive:
+        try:
+            bytes_to_get_now = min(num_bytes_to_receive - len(received_data), 4096) 
+            packet = sock.recv(bytes_to_get_now)
+        except socket.timeout:
+            print("CLIENT: Socket timeout during receive_all.")
+            return None # Indicate timeout
+        except ConnectionAbortedError:
+            print("CLIENT: Connection aborted during receive_all.")
             return None
-        return json.loads(data_bytes.decode('utf-8'))
+        except Exception as e: # Other socket errors
+            print(f"CLIENT: Socket error during receive_all: {e}")
+            return None
+        
+        if not packet:
+            # Connection closed prematurely by the server
+            print("CLIENT: Connection closed by server while expecting more data in receive_all.")
+            return None 
+        received_data.extend(packet)
+    return received_data
+
+def receive_json_client(sock):
+    global running
+    try:
+        # 1. Receive the 4-byte length prefix
+        len_prefix_bytes = receive_all(sock, MSG_LENGTH_PREFIX_SIZE)
+        if len_prefix_bytes is None:
+            if running: running = False
+            return None
+
+        # 2. Unpack the length prefix to get the message length
+        actual_message_length = struct.unpack(MSG_LENGTH_PREFIX_FORMAT, len_prefix_bytes)[0]
+        print(f"CLIENT DEBUG: Expecting JSON message of length: {actual_message_length}")
+
+        # 3. Receive the actual JSON message data
+        json_message_bytes = receive_all(sock, actual_message_length)
+        if json_message_bytes is None:
+            if running: running = False 
+            return None
+        
+        # 4. Decode from UTF-8 and parse JSON
+        json_string = json_message_bytes.decode('utf-8')
+        print(f"CLIENT DEBUG: Received JSON string: {json_string[:200]}...") 
+        return json.loads(json_string)
+
+    except struct.error as se:
+        print(f"CLIENT: Struct unpack error (likely bad length prefix from server or connection issue): {se}")
+        if running: running = False
+        return None
     except json.JSONDecodeError as je:
-        print(f"CLIENT: Received malformed JSON from server. Error: {je}")
-        return {"status": "error", "message": "Malformed JSON from server."}
-    except ConnectionResetError:
-        print("CLIENT: Connection reset by server during receive.")
-        return None
-    except ConnectionAbortedError:
-        print("CLIENT: Connection aborted during receive.")
-        return None
-    except socket.timeout:
-        print("CLIENT: Socket receive timeout.")
-        return None
-    except Exception as e:
-        print(f"CLIENT: Error receiving JSON: {e}")
+        print(f"CLIENT: Failed to decode JSON received from server. Error: {je}")
+        print(f"CLIENT DEBUG MALFORMED JSON DATA: <{json_message_bytes.decode('utf-8', errors='ignore') if 'json_message_bytes' in locals() else 'Could not decode for debug'}>")
+        if running: running = False 
+        return {"status": "error", "message": "Malformed JSON received from server (decode error)."} # Or None
+    except Exception as e: 
+        print(f"CLIENT: Critical error in receive_json_client: {e}")
+        if running: running = False
         return None
 
 running = True 
@@ -133,9 +177,9 @@ def sendingThread(sock):
                     if len(args_list) == 1:
                         try:
                             server_id = int(args_list[0])
-                            request_json = {"action": "ENTER_SERVER", "payload": {"server_id": server_id}}
+                            request_json = {"action": "SERVER_HISTORY", "payload": {"server_id": server_id}}
                         except ValueError: print("CLIENT: Invalid server ID. Must be a number.")
-                    else: print("CLIENT: Usage: /enter_server <server_id>")
+                    else: print("CLIENT: Usage: /server_history <server_id>")
                 
                 elif command == "/message":
                     msg_parts = args_str.split(maxsplit=1)
