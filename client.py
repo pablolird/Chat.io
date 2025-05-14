@@ -232,7 +232,7 @@ def receivingThread(sock):
                             print("  No servers to display.")
                     elif action_response == "CREATE_SERVER":
                         print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
-                    if action_response == "ENTER_SERVER": # Ensure this part is correct from previous step
+                    elif action_response == "ENTER_SERVER": # Ensure this part is correct from previous step
                         server_name = data.get("server_name", "UnknownServer")
                         received_server_id = data.get("current_server_id")
                         current_server_context_name = server_name 
@@ -250,17 +250,18 @@ def receivingThread(sock):
                         else:
                             print("  No recent messages in this server.")
                     
-                    elif action_response == "GET_SERVER_MEMBERS": # <<< NEW RESPONSE HANDLER
-                        server_name_from_resp = data.get("server_name", f"ID {data.get('server_id')}")
-                        members = data.get("members", [])
-                        print(f"  --- Users in Server: '{server_name_from_resp}' ---")
-                        if members:
-                            for member in members:
-                                online_status = "Online" if member.get('is_online') else "Offline"
-                                print(f"    - {member.get('username', 'Unknown')} (ID: {member.get('user_id')}) - {online_status}")
-                        else:
-                            # Server should always return members if server exists. If empty, it's an empty list.
-                            print("  No members found in this server (or server is empty).") 
+                    elif action_response == "GET_SERVER_MEMBERS":
+                        if status == "success":
+                            server_name_from_resp = data.get("server_name", f"ID {data.get('server_id')}")
+                            members = data.get("members", [])
+                            print(f"  --- Users in Server: '{server_name_from_resp}' ---")
+                            if members:
+                                for member in members:
+                                    online_status = "Online" if member.get('is_online') else "Offline"
+                                    admin_indicator = "(Admin)" if member.get('is_admin') else ""
+                                    print(f"    - {member.get('username', 'Unknown')} (ID: {member.get('user_id')}) - {online_status} {admin_indicator}".strip())
+                            else:
+                                print("  No members found in this server.")
             
             elif response_data.get("type") == "NEW_CHAT_MESSAGE":
                 payload = response_data.get("payload", {})

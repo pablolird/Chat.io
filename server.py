@@ -171,7 +171,7 @@ class ClientThread(threading.Thread):
 
                 elif action == "GET_SERVER_MEMBERS":
                     server_id_to_query_str = payload.get("server_id")
-                    response = {"action_response_to": action, "status": "error", "message": "Server ID not provided or invalid."} # Default error
+                    response = {"action_response_to": action, "status": "error", "message": "Server ID not provided or invalid."}
 
                     target_server_id = None
                     if server_id_to_query_str is not None:
@@ -180,31 +180,29 @@ class ClientThread(threading.Thread):
                         except ValueError:
                             response["message"] = "Invalid server_id format. Must be a number."
                             send_json(self.client_socket, response)
-                            continue # Next iteration of the client's command loop
-                    elif self.current_server_id is not None: # If no ID provided, use user's current server
+                            continue 
+                    elif self.current_server_id is not None: 
                         target_server_id = self.current_server_id
                     
                     if target_server_id is not None:
-                        # Optional: Check if the requesting user is a member of the server they are querying.
-                        # if not database.is_user_member(self.user_id, target_server_id):
-                        #     response["message"] = "You are not a member of this server and cannot view its user list."
-                        #     send_json(self.client_socket, response)
-                        #     continue
-
-                        server_details = database.get_server_details(target_server_id)
+                        server_details = database.get_server_details(target_server_id) # Fetches name, admin_user_id, etc.
                         if not server_details:
                             response["message"] = f"Server ID {target_server_id} not found."
                         else:
+                            current_server_admin_id = server_details['admin_user_id'] # Get the admin ID for this server
                             db_members = database.get_server_members(target_server_id) # List of {'user_id': X, 'username': 'name'}
                             
                             member_list_with_status = []
-                            with lock: # Need lock to safely access authenticated_clients
-                                for member in db_members:
-                                    is_online = member['user_id'] in authenticated_clients
+                            with lock: 
+                                for member_data in db_members: # Renamed to avoid conflict if member is a keyword
+                                    is_online = member_data['user_id'] in authenticated_clients
+                                    is_admin = (member_data['user_id'] == current_server_admin_id) # <<< CHECK IF ADMIN
+                                    
                                     member_list_with_status.append({
-                                        "user_id": member['user_id'],
-                                        "username": member['username'],
-                                        "is_online": is_online
+                                        "user_id": member_data['user_id'],
+                                        "username": member_data['username'],
+                                        "is_online": is_online,
+                                        "is_admin": is_admin  # <<< ADD is_admin FLAG TO PAYLOAD
                                     })
                             
                             response["status"] = "success"
@@ -212,13 +210,13 @@ class ClientThread(threading.Thread):
                             response["data"] = {
                                 "server_id": target_server_id, 
                                 "server_name": server_details['name'], 
-                                "members": member_list_with_status
+                                "members": member_list_with_status # This list now contains the 'is_admin' flag
                             }
-                    else: # No target_server_id could be determined
+                    else: 
                         response["message"] = "You must specify a server ID or be active in a server using /enter_server."
                         
                     send_json(self.client_socket, response)
-                    continue # Processed this action
+                    continue 
 
                 # --- Server Management Actions ---
                 elif action == "CREATE_SERVER":
