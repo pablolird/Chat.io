@@ -46,7 +46,7 @@ def receive_json_client(sock):
 running = True 
 authenticated_user_details = None # Stores {'user_id': id, 'username': name}
 current_server_context_name = "Global" # Default context name for the prompt
-client_active_server_id = None # <<<< NEW: Stores the ID of the server client is currently in
+client_active_server_id = None 
 
 def format_timestamp(unix_ts):
     """Helper to format Unix timestamp into a readable string."""
@@ -58,9 +58,8 @@ def format_timestamp(unix_ts):
         return str(unix_ts) # Fallback
 
 def get_prompt():
-    """Returns the current input prompt."""
     if authenticated_user_details:
-        return f"({current_server_context_name}) {authenticated_user_details['username']}> "
+        return f"{authenticated_user_details['username']}> " # Simplified prompt
     return "> "
 
 def sendingThread(sock):
@@ -83,78 +82,83 @@ def sendingThread(sock):
 
             if user_input.startswith("/"):
                 command_processed = True 
-                parts = user_input.split(maxsplit=2) 
+                parts = user_input.split(maxsplit=1) 
                 command = parts[0].lower()
-                args = parts[1:] if len(parts) > 1 else []
+
+                args_str = parts[1] if len(parts) > 1 else ""
+                args_list = args_str.split() # Further split args if needed by specific commands
 
                 if command == "/close":
                     request_json = {"action": "DISCONNECT"}
+
                 elif command == "/create_server":
-                    if len(args) >= 1:
-                        server_name = " ".join(args)
-                        request_json = {"action": "CREATE_SERVER", "payload": {"server_name": server_name}}
+                    if len(args_str):
+                        request_json = {"action": "CREATE_SERVER", "payload": {"server_name": args_str}}
                     else:
                         print("CLIENT: Usage: /create_server <server_name>")
+
                 elif command == "/list_servers":
                     request_json = {"action": "LIST_ALL_SERVERS"}
+
                 elif command == "/my_servers":
                     request_json = {"action": "LIST_MY_SERVERS"}
-                if command == "/users_in_server": # <<< NEW COMMAND
-                    target_server_id_for_request = None
-                    if len(args) == 1: # User provided a server ID
-                        try:
-                            target_server_id_for_request = int(args[0])
-                        except ValueError:
-                            print("CLIENT: Invalid server ID. Must be a number.")
-                            command_processed = True # It was a command, but invalid args
-                    elif len(args) == 0: # No server ID provided, use current active server
-                        if client_active_server_id is not None:
-                            target_server_id_for_request = client_active_server_id
-                        else:
-                            print("CLIENT: You are not currently in a server. Usage: /users_in_server [server_id]")
-                            command_processed = True # It was a command, but context missing
-                    else: # Too many arguments
-                        print("CLIENT: Usage: /users_in_server [server_id] (uses current server if ID is omitted)")
-                        command_processed = True
 
+                elif command == "/users_in_server": # <<< NEW COMMAND
+                    target_server_id_for_request = None
+                    if len(args_list) == 1: # User provided a server ID
+                        try:
+                            target_server_id_for_request = int(args_list[0])
+                        except ValueError: print("CLIENT: Invalid server ID. Must be a number.")
+                    else: print("CLIENT: Usage: /users_in_server <server_id>")
                     if target_server_id_for_request is not None:
                         request_json = {"action": "GET_SERVER_MEMBERS", "payload": {"server_id": target_server_id_for_request}}
+
                 elif command == "/join_server":
-                    if len(args) == 1:
+                    if len(args_list) == 1:
                         try:
-                            server_id = int(args[0])
+                            server_id = int(args_list[0])
                             request_json = {"action": "JOIN_SERVER", "payload": {"server_id": server_id}}
-                        except ValueError:
-                            print("CLIENT: Invalid server ID. Must be a number.")
-                    else:
-                        print("CLIENT: Usage: /join_server <server_id>")
+                        except ValueError: print("CLIENT: Invalid server ID. Must be a number.")
+                    else: print("CLIENT: Usage: /join_server <server_id>")
+
                 elif command == "/leave_server":
-                    if len(args) == 1:
+                    if len(args_list) == 1:
                         try:
-                            server_id = int(args[0])
+                            server_id = int(args_list[0])
                             request_json = {"action": "LEAVE_SERVER", "payload": {"server_id": server_id}}
-                        except ValueError:
-                            print("CLIENT: Invalid server ID. Must be a number.")
-                    else:
-                        print("CLIENT: Usage: /leave_server <server_id>")
-                elif command == "/enter_server":
-                    if len(args) == 1:
+                        except ValueError: print("CLIENT: Invalid server ID. Must be a number.")
+                    else: print("CLIENT: Usage: /leave_server <server_id>")
+
+                elif command == "/server_history":
+                    if len(args_list) == 1:
                         try:
-                            server_id = int(args[0])
+                            server_id = int(args_list[0])
                             request_json = {"action": "ENTER_SERVER", "payload": {"server_id": server_id}}
-                        except ValueError:
-                            print("CLIENT: Invalid server ID. Must be a number.")
-                    else:
-                        print("CLIENT: Usage: /enter_server <server_id>")
+                        except ValueError: print("CLIENT: Invalid server ID. Must be a number.")
+                    else: print("CLIENT: Usage: /enter_server <server_id>")
+                
+                elif command == "/message":
+                    msg_parts = args_str.split(maxsplit=1)
+                    if len(msg_parts) == 2:
+                        try:
+                            server_id = int(msg_parts[0])
+                            message_content = msg_parts[1]
+                            if message_content:
+                                request_json = {"action": "SEND_CHAT_MESSAGE", "payload": {"server_id": server_id, "message": message_content}}
+                            else: print("CLIENT: Message content cannot be empty for /message.")
+                        except ValueError: print("CLIENT: Invalid server_id for /message.")
+                    else: print("CLIENT: Usage: /message <server_id> <message_content>")
+                
                 elif command == "/help":
                     print("\nCLIENT: Available commands:")
                     print("  /create_server <name>   - Create a new server.")
                     print("  /list_servers           - List all available servers.")
                     print("  /my_servers             - List servers you are a member of.")
                     print("  /join_server <id>       - Join a server by its ID.")
-                    print("  /enter_server <id>      - Set a server as your active context.")
+                    print("  /server_history <id>      - Set a server as your active context.")
                     print("  /leave_server <id>      - Leave a server by its ID.")
-                    print("  /users_in_server [id]   - List users in a server (current if no id).") # Added here
+                    print("  /users_in_server [id]   - List users in a server (current if no id).")
+                    print("  /message <id> <message> - Message to that specific server.")
                     print("  /close                  - Disconnect from the chat.")
                     print("  /help                   - Show this help message.")
                     print("  (Anything else is a chat message for the current context)\n")
@@ -165,11 +169,8 @@ def sendingThread(sock):
                     sys.stdout.write(get_prompt()) 
                     sys.stdout.flush()
             else: 
-                if user_input.strip():
-                    request_json = {
-                        "action": "SEND_CHAT_MESSAGE",
-                        "payload": {"message": user_input}
-                    }
+                print("CLIENT: Invalid input. Type /help for commands or /message <server_id> <message> to chat.")
+                sys.stdout.write(get_prompt()); sys.stdout.flush()
             
             if request_json:
                 if not send_json_client(sock, request_json):
@@ -212,7 +213,7 @@ def receivingThread(sock):
                 break
 
             prompt_len = len(get_prompt())
-            sys.stdout.write('\r' + ' ' * (prompt_len + 80) + '\r')
+            sys.stdout.write('\r' + ' ' * (prompt_len + 100) + '\r')
 
             action_response = response_data.get("action_response_to")
             status = response_data.get("status")
@@ -232,15 +233,11 @@ def receivingThread(sock):
                             print("  No servers to display.")
                     elif action_response == "CREATE_SERVER":
                         print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
-                    elif action_response == "ENTER_SERVER": # Ensure this part is correct from previous step
+                    elif action_response == "SERVER_HISTORY": # Ensure this part is correct from previous step
                         server_name = data.get("server_name", "UnknownServer")
-                        received_server_id = data.get("current_server_id")
-                        current_server_context_name = server_name 
-                        client_active_server_id = received_server_id
-                        print(f"  --- Now active in server: '{server_name}' (ID: {client_active_server_id}) ---")
                         messages_history = data.get("messages", [])
+                        print(f"  --- Message History for '{server_name}' (ID: {data.get('server_id')}) ---")
                         if messages_history:
-                            print("  --- Recent Messages ---")
                             for msg_data in messages_history:
                                 ts = format_timestamp(msg_data.get('timestamp'))
                                 sender = msg_data.get('sender_username', 'Unknown')
@@ -248,7 +245,7 @@ def receivingThread(sock):
                                 print(f"  ({ts}) {sender}: {content}")
                             print("  --- End of History ---")
                         else:
-                            print("  No recent messages in this server.")
+                            print("  No messages found for this server.")
                     
                     elif action_response == "GET_SERVER_MEMBERS":
                         if status == "success":
@@ -263,20 +260,16 @@ def receivingThread(sock):
                             else:
                                 print("  No members found in this server.")
             
-            elif response_data.get("type") == "NEW_CHAT_MESSAGE":
+            elif response_data.get("type") == "CHAT_MESSAGE":
                 payload = response_data.get("payload", {})
                 sender = payload.get("sender_username", "Unknown")
                 msg_text = payload.get("message", "")
                 message_server_id = payload.get("server_id")
+                message_server_name = payload.get("server_name", f"ServerID_{message_server_id}")
                 ts = format_timestamp(payload.get('timestamp'))
-
-                if client_active_server_id is None and message_server_id is None: 
-                     print(f"({ts}) {sender}: {msg_text}")
-                elif message_server_id == client_active_server_id:
-                    print(f"({ts}) {sender}: {msg_text}")
-                else:
-                   print(f"CLIENT DEBUG: Ignored message for server {message_server_id}, active is {client_active_server_id}")
-
+                
+                print(f"({message_server_id}) [{ts}] {sender}: {msg_text}")
+            
             elif response_data.get("type") == "USER_JOINED": 
                 payload = response_data.get("payload", {})
                 # This is a global "joined the system" message, like online status.

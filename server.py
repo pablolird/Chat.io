@@ -73,7 +73,6 @@ class ClientThread(threading.Thread):
         self.user_id = user_id
         self.username = username
         self.running = True
-        self.current_server_id = None # User is not in any server initially
 
         thread_name = threading.current_thread().name
         print(f"DEBUG: [{thread_name}] ClientThread __init__ for UserID: {self.user_id}, Username: {self.username}, Addr: {self.addr}")
@@ -82,7 +81,6 @@ class ClientThread(threading.Thread):
                 'socket': self.client_socket,
                 'username': self.username,
                 'addr': self.addr,
-                'current_server_id': self.current_server_id # Initialized to None here
             }
         print(f"DEBUG: [{thread_name}] User {self.username} (ID: {self.user_id}) added to authenticated_clients.")
 
@@ -116,50 +114,62 @@ class ClientThread(threading.Thread):
                 response = {"action_response_to": action, "status": "error", "message": "Unhandled action or error."} # Default error response
 
                 if action == "SEND_CHAT_MESSAGE":
+                    server_id_target_str = payload.get("server_id")
                     message_content = payload.get("message")
-                    response = {"action_response_to": action, "status": "error"} # For sending error back to sender
 
-                    if not self.current_server_id:
-                        response["message"] = "You must enter a server first to send messages. Use /enter_server <id>."
+                    if server_id_target_str is None or message_content is None:
+                        response["message"] = "server_id and message are required for SEND_CHAT_MESSAGE."
                         send_json(self.client_socket, response)
-                        continue # Skip further processing for this action
+                        continue
 
-                    if message_content:
-                        # 1. Persist the message
-                        message_id = database.add_message(self.current_server_id, self.user_id, message_content)
+                    try:
+                        target_server_id = int(server_id_target_str)
+                        
+                        # Validate server and membership
+                        server_details = database.get_server_details(target_server_id)
+                        if not server_details:
+                            response["message"] = f"Server ID {target_server_id} not found."
+                            send_json(self.client_socket, response)
+                            continue
+                        
+                        if not database.is_user_member(self.user_id, target_server_id):
+                            response["message"] = f"You are not a member of server '{server_details['name']}'."
+                            send_json(self.client_socket, response)
+                            continue
 
+                        # Persist the message
+                        message_id = database.add_message(target_server_id, self.user_id, message_content)
                         if message_id:
-                            # 2. Construct the broadcast message
                             chat_message_broadcast = {
-                                "type": "NEW_CHAT_MESSAGE",
+                                "type": "CHAT_MESSAGE",
                                 "payload": {
                                     "sender_username": self.username,
                                     "sender_user_id": self.user_id,
                                     "message": message_content,
                                     "timestamp": int(time.time()),
-                                    "server_id": self.current_server_id, # Include server_id in broadcast
-                                    "message_id": message_id # Optionally include message_id
+                                    "server_id": target_server_id,
+                                    "server_name": server_details['name'], # Include server name
+                                    "message_id": message_id
                                 }
                             }
-                            print(f"DEBUG: [{thread_name}] Broadcasting to server {self.current_server_id} from {self.username}: {message_content}")
+                            print(f"DEBUG: [{thread_name}] Relaying message from {self.username} to server '{server_details['name']}' (ID: {target_server_id})")
                             
-                            # 3. Targeted Broadcasting
+                            # Broadcast to all online members of that specific server
+                            server_members = database.get_server_members(target_server_id)
                             with lock:
-                                for target_user_id, client_info in authenticated_clients.items():
-                                    # Send only to users in the same current_server_id
-                                    if client_info['current_server_id'] == self.current_server_id:
-                                        # Optionally, don't send back to the original sender if client handles local echo
-                                        # if target_user_id != self.user_id: 
-                                        send_json(client_info['socket'], chat_message_broadcast)
-                            # No direct "success" response to the sender for a chat message usually,
-                            # they see their own message via local echo or the broadcast.
-                            continue # Skip sending default response
+                                for member in server_members:
+                                    member_id = member['user_id']
+                                    if member_id in authenticated_clients: # Check if member is online
+                                        # No need to check if member_id != self.user_id if client handles its own messages
+                                        send_json(authenticated_clients[member_id]['socket'], chat_message_broadcast)
+                            # No direct response to sender for SEND_CHAT_MESSAGE usually
+                            continue 
                         else:
-                            response["message"] = "Failed to save your message to the database."
+                            response["message"] = "Failed to save your message."
                             send_json(self.client_socket, response)
                             continue
-                    else:
-                        response["message"] = "Message content missing."
+                    except ValueError:
+                        response["message"] = "Invalid server_id format for SEND_CHAT_MESSAGE."
                         send_json(self.client_socket, response)
                         continue
                 
@@ -299,41 +309,31 @@ class ClientThread(threading.Thread):
                     else:
                         response["message"] = "server_id missing in payload for LEAVE_SERVER."
 
-                elif action == "ENTER_SERVER":
-                    server_id_to_enter = payload.get("server_id")
-                    response = {"action_response_to": action, "status": "error"} # Default error
-                    if server_id_to_enter is not None:
-                        try:
-                            server_id_to_enter = int(server_id_to_enter)
-                            if database.is_user_member(self.user_id, server_id_to_enter):
-                                self.current_server_id = server_id_to_enter
-                                # Update the global state for this user
-                                with lock:
-                                    if self.user_id in authenticated_clients:
-                                        authenticated_clients[self.user_id]['current_server_id'] = self.current_server_id
-                                
-                                server_details = database.get_server_details(server_id_to_enter)
-                                server_name = server_details.get('name', 'Unknown Server') if server_details else 'Unknown Server'
-                                
-                                # Fetch recent messages for this server
-                                recent_messages = database.get_messages_for_server(self.current_server_id, limit=50) # Assuming get_messages... returns list of dicts
-
-                                response["status"] = "success"
-                                response["message"] = f"Entered server '{server_name}' (ID: {self.current_server_id})."
-                                response["data"] = {
-                                    "current_server_id": self.current_server_id,
-                                    "server_name": server_name,
-                                    "messages": recent_messages # Send message history
-                                }
-                                print(f"DEBUG: [{thread_name}] User {self.username} entered server {server_name} (ID: {self.current_server_id})")
-                            else:
-                                response["message"] = f"You are not a member of server ID {server_id_to_enter}, or server does not exist."
-                        except ValueError:
-                             response["message"] = "Invalid server_id format for ENTER_SERVER."
+                elif action == "SERVER_HISTORY": # Was ENTER_SERVER
+                    server_id_str = payload.get("server_id")
+                    if server_id_str is None:
+                        response["message"] = "server_id is required for SERVER_HISTORY."
                     else:
-                        response["message"] = "server_id missing for ENTER_SERVER."
+                        try:
+                            target_server_id = int(server_id_str)
+                            if database.is_user_member(self.user_id, target_server_id): # Check membership
+                                server_details = database.get_server_details(target_server_id)
+                                server_name = server_details.get('name', 'Unknown Server') if server_details else 'Unknown Server'
+                                recent_messages = database.get_messages_for_server(target_server_id, limit=50)
+                                
+                                response["status"] = "success"
+                                response["message"] = f"Message history for server '{server_name}'."
+                                response["data"] = {
+                                    "server_id": target_server_id,
+                                    "server_name": server_name,
+                                    "messages": recent_messages
+                                }
+                            else:
+                                response["message"] = f"You are not a member of server ID {target_server_id} or it does not exist."
+                        except ValueError:
+                            response["message"] = "Invalid server_id format for SERVER_HISTORY."
                     send_json(self.client_socket, response)
-                    continue # Processed this action
+                    continue
 
                 else: # Default case for unknown actions during an authenticated session
                     response["message"] = f"Unknown or unsupported action: {action}"
@@ -346,20 +346,16 @@ class ClientThread(threading.Thread):
             print(f"DEBUG: [{thread_name}] General Exception in ClientThread.run for {self.username}: {e}")
             self.running = False
         finally:
-            # ... (Your existing finally block for ClientThread to remove user, broadcast leave, close socket) ...
-            # (Ensure it uses authenticated_clients and self.user_id correctly)
             print(f"DEBUG: [{thread_name}] **Executing finally block in ClientThread for User {self.username}**")
             with lock:
                 if self.user_id in authenticated_clients:
                     del authenticated_clients[self.user_id]
-                
                 leave_broadcast = {
-                    "type": "USER_LEFT", # Global "left the system" message
+                    "type": "USER_LEFT",
                     "payload": {"username": self.username, "user_id": self.user_id, "timestamp": int(time.time())}
                 }
-                for target_user_id, client_info in authenticated_clients.items():
-                    send_json(client_info['socket'], leave_broadcast)
-            
+                for target_user_id_final, client_info_final in authenticated_clients.items(): # Corrected variable names
+                    send_json(client_info_final['socket'], leave_broadcast)
             try:
                 self.client_socket.close()
             except Exception as e_close:
