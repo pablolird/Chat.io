@@ -169,6 +169,57 @@ class ClientThread(threading.Thread):
                     # No response needed, client will close. Server closes in finally.
                     break 
 
+                elif action == "GET_SERVER_MEMBERS":
+                    server_id_to_query_str = payload.get("server_id")
+                    response = {"action_response_to": action, "status": "error", "message": "Server ID not provided or invalid."} # Default error
+
+                    target_server_id = None
+                    if server_id_to_query_str is not None:
+                        try:
+                            target_server_id = int(server_id_to_query_str)
+                        except ValueError:
+                            response["message"] = "Invalid server_id format. Must be a number."
+                            send_json(self.client_socket, response)
+                            continue # Next iteration of the client's command loop
+                    elif self.current_server_id is not None: # If no ID provided, use user's current server
+                        target_server_id = self.current_server_id
+                    
+                    if target_server_id is not None:
+                        # Optional: Check if the requesting user is a member of the server they are querying.
+                        # if not database.is_user_member(self.user_id, target_server_id):
+                        #     response["message"] = "You are not a member of this server and cannot view its user list."
+                        #     send_json(self.client_socket, response)
+                        #     continue
+
+                        server_details = database.get_server_details(target_server_id)
+                        if not server_details:
+                            response["message"] = f"Server ID {target_server_id} not found."
+                        else:
+                            db_members = database.get_server_members(target_server_id) # List of {'user_id': X, 'username': 'name'}
+                            
+                            member_list_with_status = []
+                            with lock: # Need lock to safely access authenticated_clients
+                                for member in db_members:
+                                    is_online = member['user_id'] in authenticated_clients
+                                    member_list_with_status.append({
+                                        "user_id": member['user_id'],
+                                        "username": member['username'],
+                                        "is_online": is_online
+                                    })
+                            
+                            response["status"] = "success"
+                            response["message"] = f"Retrieved members for server '{server_details['name']}'."
+                            response["data"] = {
+                                "server_id": target_server_id, 
+                                "server_name": server_details['name'], 
+                                "members": member_list_with_status
+                            }
+                    else: # No target_server_id could be determined
+                        response["message"] = "You must specify a server ID or be active in a server using /enter_server."
+                        
+                    send_json(self.client_socket, response)
+                    continue # Processed this action
+
                 # --- Server Management Actions ---
                 elif action == "CREATE_SERVER":
                     server_name = payload.get("server_name")

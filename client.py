@@ -66,6 +66,8 @@ def get_prompt():
 def sendingThread(sock):
     global running
     global authenticated_user_details
+    # global current_server_context_name # Used by get_prompt()
+    global client_active_server_id # Used to provide default server_id
 
     print(f"\n--- Type /help for commands, or your message to chat. ---")
     sys.stdout.write(get_prompt()) 
@@ -97,6 +99,26 @@ def sendingThread(sock):
                     request_json = {"action": "LIST_ALL_SERVERS"}
                 elif command == "/my_servers":
                     request_json = {"action": "LIST_MY_SERVERS"}
+                if command == "/users_in_server": # <<< NEW COMMAND
+                    target_server_id_for_request = None
+                    if len(args) == 1: # User provided a server ID
+                        try:
+                            target_server_id_for_request = int(args[0])
+                        except ValueError:
+                            print("CLIENT: Invalid server ID. Must be a number.")
+                            command_processed = True # It was a command, but invalid args
+                    elif len(args) == 0: # No server ID provided, use current active server
+                        if client_active_server_id is not None:
+                            target_server_id_for_request = client_active_server_id
+                        else:
+                            print("CLIENT: You are not currently in a server. Usage: /users_in_server [server_id]")
+                            command_processed = True # It was a command, but context missing
+                    else: # Too many arguments
+                        print("CLIENT: Usage: /users_in_server [server_id] (uses current server if ID is omitted)")
+                        command_processed = True
+
+                    if target_server_id_for_request is not None:
+                        request_json = {"action": "GET_SERVER_MEMBERS", "payload": {"server_id": target_server_id_for_request}}
                 elif command == "/join_server":
                     if len(args) == 1:
                         try:
@@ -132,9 +154,10 @@ def sendingThread(sock):
                     print("  /join_server <id>       - Join a server by its ID.")
                     print("  /enter_server <id>      - Set a server as your active context.")
                     print("  /leave_server <id>      - Leave a server by its ID.")
+                    print("  /users_in_server [id]   - List users in a server (current if no id).") # Added here
                     print("  /close                  - Disconnect from the chat.")
                     print("  /help                   - Show this help message.")
-                    print("  (Anything else is a chat message)\n")
+                    print("  (Anything else is a chat message for the current context)\n")
                 else:
                     print(f"CLIENT: Unknown command: {command}. Type /help for commands.")
                 
@@ -209,26 +232,35 @@ def receivingThread(sock):
                             print("  No servers to display.")
                     elif action_response == "CREATE_SERVER":
                         print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
-                    elif action_response == "ENTER_SERVER":
+                    if action_response == "ENTER_SERVER": # Ensure this part is correct from previous step
                         server_name = data.get("server_name", "UnknownServer")
                         received_server_id = data.get("current_server_id")
-                
                         current_server_context_name = server_name 
-                        client_active_server_id = received_server_id 
-                
+                        client_active_server_id = received_server_id
                         print(f"  --- Now active in server: '{server_name}' (ID: {client_active_server_id}) ---")
-                
-                        messages_history = data.get("messages", []) 
+                        messages_history = data.get("messages", [])
                         if messages_history:
                             print("  --- Recent Messages ---")
-                            for msg_data in messages_history: 
+                            for msg_data in messages_history:
                                 ts = format_timestamp(msg_data.get('timestamp'))
                                 sender = msg_data.get('sender_username', 'Unknown')
-                                content = msg_data.get('content', '') 
+                                content = msg_data.get('content', '')
                                 print(f"  ({ts}) {sender}: {content}")
                             print("  --- End of History ---")
                         else:
                             print("  No recent messages in this server.")
+                    
+                    elif action_response == "GET_SERVER_MEMBERS": # <<< NEW RESPONSE HANDLER
+                        server_name_from_resp = data.get("server_name", f"ID {data.get('server_id')}")
+                        members = data.get("members", [])
+                        print(f"  --- Users in Server: '{server_name_from_resp}' ---")
+                        if members:
+                            for member in members:
+                                online_status = "Online" if member.get('is_online') else "Offline"
+                                print(f"    - {member.get('username', 'Unknown')} (ID: {member.get('user_id')}) - {online_status}")
+                        else:
+                            # Server should always return members if server exists. If empty, it's an empty list.
+                            print("  No members found in this server (or server is empty).") 
             
             elif response_data.get("type") == "NEW_CHAT_MESSAGE":
                 payload = response_data.get("payload", {})
