@@ -10,6 +10,8 @@ import struct
 
 MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
+SUPERUSER_ID = 1
+SUPERUSER_USERNAME = "SYSTEM"
 
 def receive_all(sock, num_bytes_to_receive):
     received_data = bytearray()
@@ -97,6 +99,36 @@ def receive_json(sock):
         print(f"SERVER: Critical error in receive_json from {sock.getpeername()}: {e}")
         return None # General error
 
+def broadcast_system_message_to_server(server_id, server_name, message_text):
+    thread_name = threading.current_thread().name # Get current thread name for logging
+    print(f"DEBUG: [{thread_name}] Attempting to broadcast SYSTEM message to server_id {server_id} ('{server_name}'): {message_text}")
+
+    system_message_payload = {
+        "type": "CHAT_MESSAGE", # Use the existing chat message type
+        "payload": {
+            "sender_user_id": SUPERUSER_ID,
+            "sender_username": SUPERUSER_USERNAME,
+            "message": message_text,
+            "timestamp": int(time.time()),
+            "server_id": server_id,
+            "server_name": server_name 
+        }
+    }
+
+    members_of_server = database.get_server_members(server_id) 
+    if not members_of_server:
+        print(f"DEBUG: [{thread_name}] No members found for server_id {server_id} to broadcast system message.")
+        return
+
+    with lock: 
+        online_recipients = 0
+        for member in members_of_server:
+            member_id = member['user_id']
+            if member_id in authenticated_clients:
+                client_info = authenticated_clients[member_id]
+                if send_json(client_info['socket'], system_message_payload):
+                    online_recipients += 1
+        print(f"DEBUG: [{thread_name}] System message broadcast to {online_recipients}/{len(members_of_server)} members of server_id {server_id}.")
 
 # Global dictionary to store authenticated clients, keyed by user_id
 # Each value will be a dictionary: {'socket': client_socket, 'username': username, 'addr': addr, 'current_server_id': None}
@@ -307,7 +339,9 @@ class ClientThread(threading.Thread):
                             elif database.add_user_to_server(self.user_id, server_id_to_join):
                                 response["status"] = "success"
                                 response["message"] = f"Successfully joined server '{server_details['name']}'."
-                                # TODO: Optionally broadcast USER_JOINED_SERVER to members of that server
+                                send_json(self.client_socket, response) # Send response to joining user first
+                                # Now broadcast to the server
+                                broadcast_system_message_to_server(server_id_to_join, server_details['name'], f"{self.username} joined the server.")
                             else:
                                 response["message"] = f"Failed to join server ID {server_id_to_join}."
                         except ValueError:
@@ -316,36 +350,64 @@ class ClientThread(threading.Thread):
                         response["message"] = "server_id missing in payload for JOIN_SERVER."
                 
                 elif action == "LEAVE_SERVER":
-                    server_id_to_leave = payload.get("server_id")
-                    if server_id_to_leave is not None:
+                    server_id_to_leave_str = payload.get("server_id")
+                    # Initialize response with action_response_to for proper client handling
+                    response = {"action_response_to": action, "status": "error", "message": "Could not process leave request."} 
+
+                    if server_id_to_leave_str is not None:
                         try:
-                            server_id_to_leave = int(server_id_to_leave)
-                            server_details = database.get_server_details(server_id_to_leave) # Get name for messages
+                            server_id_to_leave = int(server_id_to_leave_str)
+                            server_details = database.get_server_details(server_id_to_leave) 
+                            
                             if not server_details:
                                 response["message"] = f"Server ID {server_id_to_leave} not found."
                             else:
-                                leave_status = database.remove_user_from_server(self.user_id, server_id_to_leave)
-                                response["status"] = "success" # Assume success unless specific error from DB
-                                if leave_status == "SUCCESS_LEFT":
-                                    response["message"] = f"You have left server '{server_details['name']}'."
-                                elif leave_status == "SUCCESS_ADMIN_LEFT_NEW_ADMIN_ASSIGNED":
-                                    response["message"] = f"You have left server '{server_details['name']}'. A new admin has been assigned."
-                                    # TODO: Broadcast new admin to remaining server members
-                                elif leave_status == "SUCCESS_ADMIN_LEFT_SERVER_DELETED":
-                                    response["message"] = f"You have left server '{server_details['name']}'. The server has been deleted."
-                                elif leave_status == "NOT_MEMBER":
-                                    response["status"] = "error"
-                                    response["message"] = f"You are not a member of server '{server_details['name']}'."
-                                elif leave_status == "SERVER_NOT_FOUND": # Should have been caught above
-                                    response["status"] = "error"
-                                    response["message"] = f"Server ID {server_id_to_leave} not found."
-                                else: # "ERROR" or "ERROR_FAILED_TO_ASSIGN_NEW_ADMIN"
-                                    response["status"] = "error"
-                                    response["message"] = f"Could not process leaving server '{server_details['name']}'. Status: {leave_status}"
+                                server_name_for_messages = server_details.get('name') 
+
+                                if server_name_for_messages is None:
+                                    print(f"CRITICAL SERVER ERROR: Server details for ID {server_id_to_leave} fetched but 'name' key is missing or None. Details: {server_details}")
+                                    response["message"] = f"Internal error retrieving details for server ID {server_id_to_leave}."
+                                else:
+                                    leave_result = database.remove_user_from_server(self.user_id, server_id_to_leave)
+                                    
+                                    # Update response based on leave_result
+                                    response["status"] = leave_result.get("status", "ERROR") # Default to ERROR if status missing
+                                    
+                                    response_message_for_client = f"Processed leaving server '{server_name_for_messages}'. Status: {response['status']}" # Default
+                                    # Customize messages based on specific statuses from remove_user_from_server
+                                    if leave_result["status"] == "SUCCESS_LEFT":
+                                        response_message_for_client = f"You have left server '{server_name_for_messages}'."
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.")
+                                    elif leave_result["status"] == "SUCCESS_ADMIN_LEFT_NEW_ADMIN_ASSIGNED":
+                                        new_admin_info = leave_result.get("data", {})
+                                        new_admin_username = new_admin_info.get("new_admin_username", "A new user")
+                                        response_message_for_client = f"You have left server '{server_name_for_messages}'. {new_admin_username} is the new admin."
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.")
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"New admin is {new_admin_username}.")
+                                    elif leave_result["status"] == "SUCCESS_ADMIN_LEFT_SERVER_DELETED":
+                                        response_message_for_client = f"You have left server '{server_name_for_messages}'. The server has been deleted."
+                                    elif leave_result["status"] == "NOT_MEMBER":
+                                        response_message_for_client = f"You are not a member of server '{server_name_for_messages}'."
+                                    elif leave_result["status"] == "ERROR_FAILED_TO_ASSIGN_NEW_ADMIN":
+                                        response_message_for_client = f"You left as admin from '{server_name_for_messages}', but a new admin could not be assigned."
+                                    elif leave_result["status"] == "ERROR":
+                                        error_detail_db = leave_result.get("data", {}).get("details", "Database operation failed.")
+                                        response_message_for_client = f"Failed to leave server '{server_name_for_messages}'. Detail: {error_detail_db}"
+                                    
+                                    response["message"] = response_message_for_client
                         except ValueError:
                             response["message"] = "Invalid server_id format for LEAVE_SERVER."
-                    else:
+                        except Exception as e_leave: # Catch any other unexpected error in this block
+                            print(f"DEBUG: [{thread_name}] Unexpected Exception in LEAVE_SERVER for {self.username}: {e_leave}")
+                            response["message"] = f"An unexpected error occurred while trying to leave the server: {e_leave}"
+                            # Ensure status is error if not already set by a more specific condition
+                            response["status"] = "error"
+
+                    else: # server_id_to_leave_str was None
                         response["message"] = "server_id missing in payload for LEAVE_SERVER."
+                    
+                    send_json(self.client_socket, response)
+                    continue
 
                 elif action == "SERVER_HISTORY": 
                     server_id_str = payload.get("server_id")

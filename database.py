@@ -1,6 +1,8 @@
 import sqlite3
 import time # For Unix timestamps
 
+SUPER_USER_ID = 1
+SUPER_USER_USERNAME = "SYSTEM"
 DATABASE_FILE = 'chat_app.db'
 
 def add_user(username, password):
@@ -207,102 +209,64 @@ def add_user_to_server(user_id, server_id):
             conn.close()
 
 def remove_user_from_server(user_id_leaving, server_id):
-    """
-    Removes a user from a server's membership list.
-    If the user leaving is the admin:
-    - If other members exist, the oldest remaining member becomes the new admin.
-    - If the admin is the last member, the server is deleted.
-    Returns:
-        "SUCCESS_LEFT": User (non-admin) left successfully.
-        "SUCCESS_ADMIN_LEFT_NEW_ADMIN_ASSIGNED": Admin left, new admin assigned.
-        "SUCCESS_ADMIN_LEFT_SERVER_DELETED": Admin left, server was empty and now deleted.
-        "NOT_MEMBER": User was not a member of the server.
-        "SERVER_NOT_FOUND": The specified server does not exist.
-        "NOT_ADMIN_NO_SPECIAL_ACTION": User left, but was not admin, so no special admin logic.
-        "ERROR": General database error or failed to assign new admin when expected.
-    """
-    conn = None
+    conn = None # Initialize conn
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
         conn.execute("PRAGMA foreign_keys = ON;")
 
-        # Get current admin of the server
         cursor.execute("SELECT admin_user_id FROM servers WHERE server_id = ?", (server_id,))
         server_row = cursor.fetchone()
-
-        if not server_row:
-            print(f"Server ID {server_id} not found.")
-            return "SERVER_NOT_FOUND"
-        
+        if not server_row: return {"status": "SERVER_NOT_FOUND"}
         current_admin_id = server_row[0]
         is_leaving_user_admin = (user_id_leaving == current_admin_id)
 
-        # Attempt to remove the user from memberships
         cursor.execute("DELETE FROM memberships WHERE user_id = ? AND server_id = ?", (user_id_leaving, server_id))
-        
         if cursor.rowcount == 0:
-            print(f"User ID {user_id_leaving} was not a member of server ID {server_id}.")
-            # No change made to memberships, so no further admin logic needed even if they were listed as admin
-            # (though this implies an inconsistency if they were admin but not in memberships).
-            conn.rollback() # Rollback as no effective change intended if not a member
-            return "NOT_MEMBER"
+            conn.rollback()
+            return {"status": "NOT_MEMBER"}
 
-        # If the leaving user was NOT the admin, the job is simpler
         if not is_leaving_user_admin:
             conn.commit()
-            print(f"User ID {user_id_leaving} (non-admin) removed from server ID {server_id}.")
-            return "SUCCESS_LEFT"
+            return {"status": "SUCCESS_LEFT"}
 
-        # --- If the leaving user WAS the admin, apply special logic ---
-        print(f"Admin ID {user_id_leaving} is leaving server ID {server_id}. Applying special logic.")
-
-        # Count remaining members
+        # Admin is leaving
         cursor.execute("SELECT COUNT(*) FROM memberships WHERE server_id = ?", (server_id,))
         remaining_members_count = cursor.fetchone()[0]
-        print(f"Remaining members in server {server_id}: {remaining_members_count}")
 
         if remaining_members_count > 0:
-            # Promote the oldest remaining member
-            # Using membership_id as a tie-breaker for joined_at ensures determinism
             cursor.execute("""
-                SELECT user_id FROM memberships 
-                WHERE server_id = ? 
-                ORDER BY joined_at ASC, membership_id ASC 
+                SELECT u.user_id, u.username FROM memberships m
+                JOIN users u ON m.user_id = u.user_id
+                WHERE m.server_id = ? 
+                ORDER BY m.joined_at ASC, m.membership_id ASC 
                 LIMIT 1
             """, (server_id,))
-            new_admin_row = cursor.fetchone()
+            new_admin_data_row = cursor.fetchone() # Will be a tuple (user_id, username)
 
-            if new_admin_row:
-                new_admin_user_id = new_admin_row[0]
+            if new_admin_data_row:
+                new_admin_user_id = new_admin_data_row[0]
+                new_admin_username = new_admin_data_row[1]
                 cursor.execute("UPDATE servers SET admin_user_id = ? WHERE server_id = ?", 
                                (new_admin_user_id, server_id))
                 conn.commit()
-                print(f"Admin ID {user_id_leaving} left server ID {server_id}. New admin is User ID {new_admin_user_id}.")
-                return "SUCCESS_ADMIN_LEFT_NEW_ADMIN_ASSIGNED"
+                return {
+                    "status": "SUCCESS_ADMIN_LEFT_NEW_ADMIN_ASSIGNED",
+                    "data": {"new_admin_id": new_admin_user_id, "new_admin_username": new_admin_username}
+                }
             else:
-                # This case should ideally not be reached if remaining_members_count > 0.
-                # It implies an issue or a very specific edge case.
-                # To be safe, if no new admin can be found, consider it an error or delete the server.
-                # For now, let's treat as an error as server should not be admin-less with members.
-                conn.rollback() # Rollback changes as we couldn't assign a new admin
-                print(f"ERROR: Server ID {server_id} has {remaining_members_count} members but could not find a new admin.")
-                return "ERROR_FAILED_TO_ASSIGN_NEW_ADMIN"
+                conn.rollback()
+                return {"status": "ERROR_FAILED_TO_ASSIGN_NEW_ADMIN"}
         else:
-            # Admin was the last member, delete the server
             cursor.execute("DELETE FROM servers WHERE server_id = ?", (server_id,))
             conn.commit()
-            print(f"Admin ID {user_id_leaving} left server ID {server_id}. Server was empty and has been deleted.")
-            return "SUCCESS_ADMIN_LEFT_SERVER_DELETED"
-
+            return {"status": "SUCCESS_ADMIN_LEFT_SERVER_DELETED"}
     except sqlite3.Error as e:
         print(f"Database error processing user {user_id_leaving} leaving server {server_id}: {e}")
-        if conn:
-            conn.rollback() # Rollback on any SQL error
-        return "ERROR"
+        if conn: conn.rollback()
+        return {"status": "ERROR", "data": {"details": str(e)}}
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
 def get_server_details(server_id):
     """Retrieves details for a specific server, including admin username."""
@@ -426,15 +390,20 @@ def get_messages_for_server(server_id, limit=50):
     return messages_list
 
 def initialize_database():
-    """Connects to the SQLite database and creates tables if they don't exist."""
+    """Connects to the SQLite database and creates tables and system user if they don't exist."""
     conn = None
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
         print("Database connection established.")
-
-        # Enable Foreign Keys 
         cursor.execute("PRAGMA foreign_keys = ON;")
+
+        # ... (your existing table creation statements for users, servers, memberships, messages, challenges) ...
+
+        # Create the SYSTEM user (superuser)
+        # Generate a dummy hash; this user should not be able to log in normally.
+        dummy_password = "cannot_login_system_user_!@#$%^"
+        current_time = int(time.time())
 
         # Create users table
         cursor.execute("""
@@ -507,7 +476,25 @@ def initialize_database():
         print("Checked/Created 'challenges' table.")
 
         conn.commit() # Save the changes (table creations)
-        print("Database initialized successfully.")
+        cursor.execute("""
+            INSERT OR IGNORE INTO users (user_id, username, password, created_at) 
+            VALUES (?, ?, ?, ?)
+        """, (SUPER_USER_ID, SUPER_USER_USERNAME, dummy_password, current_time))
+        if cursor.rowcount > 0:
+            print(f"SYSTEM user '{SUPER_USER_USERNAME}' with ID {SUPER_USER_ID} created or ensured.")
+        else:
+            # Check if it exists with the correct username if ID was ignored due to PK conflict
+            cursor.execute("SELECT username FROM users WHERE user_id = ?", (SUPER_USER_ID,))
+            row = cursor.fetchone()
+            if row and row[0] == SUPER_USER_USERNAME:
+                print(f"SYSTEM user '{SUPER_USER_USERNAME}' (ID: {SUPER_USER_ID}) already exists.")
+            else:
+                print(f"WARNING: SYSTEM user with ID {SUPER_USER_ID} might exist with a different username, or insert failed for other reasons.")
+
+
+        conn.commit()
+        print("Database initialized successfully (including SYSTEM user check).")
+
 
     except sqlite3.Error as e:
         print(f"Database error during initialization: {e}")
