@@ -88,6 +88,7 @@ class Message(QWidget):
         self.text = QLabel(text)
         self.text.setStyleSheet("padding: 0px;")
         self.text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.text.setCursor(Qt.CursorShape.IBeamCursor)
 
         # Optional: Align left/right depending on sender
         if is_sender:
