@@ -245,7 +245,7 @@ class MainWindow(QMainWindow):
             self.m_start_page.set_warning(1, "CLIENT: Registration successful. Please login.")
             return 1
         elif response_auth.get("status") == "error":
-            self.m_start_page.set_warning(0, "Unknown error XD")
+            self.m_start_page.set_warning(0, response_auth.get('message', 'No message.'))
 
     # ADD WARNINGS FOR ALL REQUESTS
     def sendRequest(self, request):
