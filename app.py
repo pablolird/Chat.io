@@ -1,11 +1,25 @@
-from lib_QT.ImportQT import *
 import ui.startpage.start_classes as start_page
 import ui.mainpage.main_page as main_page
+from ui.mainpage.mainbar_widgets import Chat
 from ui.mainpage.group_widgets import Group
-from ui.mainpage.main_page import Chat
 import json
 import time
 import struct
+import threading
+import os
+import sys
+import socket
+from datetime import datetime
+from PySide6.QtCore import (Signal)
+from PySide6.QtWidgets import (
+    QStackedWidget,
+    QMainWindow,
+    QApplication,
+)
+from PySide6.QtGui import (
+    QIcon,
+    QFontDatabase
+)
 
 MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)

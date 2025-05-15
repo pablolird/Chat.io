@@ -5,6 +5,12 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
+from ui.mainpage.group_widgets import GroupBar
+from ui.mainpage.mainbar_widgets import addGroupsBar, ConfigBar, UserConfigBar
+from ui.mainpage.sidebar import SideBar
+from ui.mainpage.chat_view import ChatsContainer
+
+
 class MainBar(QWidget):
 
     def __init__(self):

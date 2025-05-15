@@ -11,6 +11,9 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 from PySide6.QtGui import QIcon
+from ui.mainpage.chat_view import ChatView
+from ui.mainpage.group_info import GroupDescription, MemberInfo
+
 
 class addGroupsBarButton(QPushButton):
     def __init__(self, path, text):

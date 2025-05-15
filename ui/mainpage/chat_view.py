@@ -10,7 +10,9 @@ from PySide6.QtCore import (
     Qt,
     Signal
 )
-
+from ui.startpage.start_classes import inputField
+from ui.mainpage.group_info import GroupInfo
+from ui.mainpage.chat_area import ChatArea, chatInput
 
 class ChatView(QWidget): # Definition of a chat space class
     def __init__(self, groupname):
