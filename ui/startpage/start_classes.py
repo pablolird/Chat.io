@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QIcon,
     QPixmap
 )
+import os
 
 class inputField(QLineEdit):
     def __init__(self, placeholder):
@@ -79,9 +80,9 @@ class LoginSection(QWidget):
         self.m_passwordInput = inputField("Password")
         self.m_passwordInput.setEchoMode(QLineEdit.Password)
 
-        icon = QIcon("assets/icons/Interface-Essential-Lock--Streamline-Pixel.svg")
+        icon = QIcon(os.path.join("assets","icons","Interface-Essential-Lock--Streamline-Pixel.svg"))
 
-        icon2 = QIcon("assets/icons/Interface-Essential-Profile-Male--Streamline-Pixel.svg")
+        icon2 = QIcon(os.path.join("assets","icons","Interface-Essential-Profile-Male--Streamline-Pixel.svg"))
 
         self.m_passwordInput.addAction(icon, QLineEdit.TrailingPosition)
         self.m_userInput.addAction(icon2, QLineEdit.TrailingPosition)
@@ -107,9 +108,9 @@ class RegisterSection(QWidget):
         self.m_repeatPasswordInput = inputField("Repeat password")
         self.m_repeatPasswordInput.setEchoMode(QLineEdit.Password)
 
-        icon = QIcon("assets/icons/Interface-Essential-Lock--Streamline-Pixel.svg")
+        icon = QIcon(os.path.join("assets","icons","Interface-Essential-Lock--Streamline-Pixel.svg"))
 
-        icon2 = QIcon("assets/icons/Interface-Essential-Profile-Male--Streamline-Pixel.svg")
+        icon2 = QIcon(os.path.join("assets","icons","Interface-Essential-Profile-Male--Streamline-Pixel.svg"))
 
         self.m_passwordInput.addAction(icon, QLineEdit.TrailingPosition)
         self.m_repeatPasswordInput.addAction(icon, QLineEdit.TrailingPosition)
@@ -128,8 +129,7 @@ class TitleSection(QWidget):
         super().__init__()   
 
         self.m_title = QLabel()
-        self.m_title.setPixmap(QPixmap("assets/icons/logo.png").scaled(300,300, Qt.KeepAspectRatio))
-        #self.m_title.setPixmap(self.m_title.scaled(100, 100, Qt.KeepAspectRatio))
+        self.m_title.setPixmap(QPixmap(os.path.join("assets","icons","logo.png")).scaled(300,300, Qt.KeepAspectRatio))
         self.m_title.setStyleSheet("font-size: 36px; color: white; font-weight: bold;")
 
         self.m_subtitle = QLabel("#WeChat #SkibidiGroup")

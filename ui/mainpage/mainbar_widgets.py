@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QIcon
 from ui.mainpage.chat_view import ChatView
 from ui.mainpage.group_info import GroupDescription, MemberInfo
-
+import os
 
 class addGroupsBarButton(QPushButton):
     def __init__(self, path, text):
@@ -71,8 +71,8 @@ class addGroupsBar(QWidget):
     
         self.m_layout = QVBoxLayout()
 
-        self.m_joinGroup = addGroupsBarButton("assets/icons/Search-User--Streamline-Pixel.svg", "Join existing group")
-        self.m_createGroup = addGroupsBarButton("assets/icons/User-Single-Aim--Streamline-Pixel.svg", "Create group")
+        self.m_joinGroup = addGroupsBarButton(os.path.join("assets","icons","Search-User--Streamline-Pixel.svg"), "Join existing group")
+        self.m_createGroup = addGroupsBarButton(os.path.join("assets","icons","User-Single-Aim--Streamline-Pixel.svg"), "Create group")
 
         self.m_layout.addWidget(self.m_joinGroup)
         self.m_layout.addWidget(self.m_createGroup)
@@ -162,7 +162,7 @@ class UserConfigBar(QWidget):
     
         self.m_layout = QGridLayout()
 
-        path = "assets/user-icons/"
+        path = os.path.join("assets","user-icons/")
 
         self.icons = []
 

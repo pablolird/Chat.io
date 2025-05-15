@@ -15,6 +15,7 @@ from PySide6.QtCore import (
     Qt,
     QTimer
 )
+import os
 
 class chatInput(QWidget):
     def __init__(self):
@@ -28,9 +29,6 @@ class chatInput(QWidget):
         self.setLayout(self.m_layout)
 
         self.m_inputBar = QLineEdit()
-
-        # icon = QIcon("assets/icons/Email-Mail-Chat--Streamline-Pixel.svg")
-        # self.m_inputBar.addAction(icon, QLineEdit.TrailingPosition)
         
         self.m_inputBar.setPlaceholderText("Write a message...")
         
@@ -48,7 +46,7 @@ class chatInput(QWidget):
                                         }""")
 
         self.m_challengeButton = QPushButton()
-        self.m_challengeButton.setIcon(QIcon("assets/icons/Interface-Essential-Crown--Streamline-Pixel.svg"))
+        self.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg")))
         self.m_challengeButton.setIconSize(QSize(32,32))
 
         self.m_challengeButton.setStyleSheet("""

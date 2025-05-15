@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QIcon,
     QPixmap
 )
-
+import os
 
 class GroupInfo(QWidget):
     clicked = Signal()  # Custom signal for click
@@ -60,11 +60,11 @@ class MemberInfo(QWidget):
         self.m_role = QLabel()
         self.m_state = QLabel()
 
-        self.m_onlinePixMap = QPixmap("assets/icons/connected.svg").scaled(24,24,Qt.KeepAspectRatio)
-        self.m_offlinePixMap =QPixmap("assets/icons/disconnected.svg").scaled(24,24,Qt.KeepAspectRatio)
+        self.m_onlinePixMap = QPixmap(os.path.join("assets","icons","connected.svg")).scaled(24,24,Qt.KeepAspectRatio)
+        self.m_offlinePixMap =QPixmap(os.path.join("assets","icons","disconnected.svg")).scaled(24,24,Qt.KeepAspectRatio)
 
         if (role=="admin"):
-            self.m_role.setPixmap(QPixmap("assets/icons/Interface-Essential-Crown--Streamline-Pixel.svg").scaled(24,24,Qt.KeepAspectRatio))
+            self.m_role.setPixmap(QPixmap(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg")).scaled(24,24,Qt.KeepAspectRatio))
     
         if (isConnected):
             self.m_state.setPixmap(self.m_onlinePixMap)
@@ -75,7 +75,7 @@ class MemberInfo(QWidget):
         self.m_layout = QHBoxLayout()
 
         self.m_icon = QLabel()
-        self.m_icon.setPixmap(QPixmap("assets/icons/Coding-Apps-Websites-Android--Streamline-Pixel.svg").scaled(24,24,Qt.KeepAspectRatio))
+        self.m_icon.setPixmap(QPixmap(os.path.join("assets","icons","Coding-Apps-Websites-Android--Streamline-Pixel.svg")).scaled(24,24,Qt.KeepAspectRatio))
 
         self.m_layout.addWidget(self.m_icon,1)
         self.m_layout.addWidget(self.m_username,20)
@@ -204,7 +204,7 @@ class GroupDescriptionBar(QWidget):
         self.setStyleSheet("background-color: transparent; color: white; padding: 10px;")
 
         self.m_button = QPushButton()
-        self.m_button.setIcon(QIcon("assets/icons/Interface-Essential-Navigation-Left-Circle-2--Streamline-Pixel.svg"))
+        self.m_button.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Navigation-Left-Circle-2--Streamline-Pixel.svg")))
         self.m_button.setIconSize(QSize(28,28))
 
         self.m_button.setStyleSheet("""QPushButton:focus {

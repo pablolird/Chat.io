@@ -628,11 +628,11 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow(s)
 
-    font_id = QFontDatabase.addApplicationFont("assets/fonts/Minecraft.ttf")
+    font_id = QFontDatabase.addApplicationFont(os.path.join("assets", "fonts", "Minecraft.ttf"))
     font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
 
     app.setStyleSheet("QWidget { font-family: Minecraft; font-size: 16px;}")
-    appIcon = QIcon("assets/icons/Interface-Essential-Crown--Streamline-Pixel.svg")
+    appIcon = QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg"))
     app.setWindowIcon(appIcon)
 
     s.settimeout(None) 

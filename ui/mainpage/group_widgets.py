@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QIcon,
     QPixmap,
 )
+import os
 
 class GroupTitle(QWidget):
     def __init__(self, name):
@@ -23,7 +24,7 @@ class GroupTitle(QWidget):
 
         self.m_title = QLabel(name)
         self.m_icon = QLabel()
-        self.m_icon.setPixmap(QPixmap("assets/icons/Multiple-User--Streamline-Pixel.svg"))
+        self.m_icon.setPixmap(QPixmap(os.path.join("assets","icons","Multiple-User--Streamline-Pixel.svg")))
 
         self.m_layout.addWidget(self.m_icon)
         self.m_layout.addWidget(self.m_title)
@@ -43,7 +44,7 @@ class GroupConnected(QWidget):
         self.m_title = QLabel(f"{count} users online")
         self.m_icon = QLabel()
 
-        icon = QIcon("assets/icons/Interface-Essential-Information-Circle-2--Streamline-Pixel.svg")
+        icon = QIcon(os.path.join("assets","icons","Interface-Essential-Information-Circle-2--Streamline-Pixel.svg"))
 
         self.m_icon.setPixmap(icon.pixmap(16,16))
         

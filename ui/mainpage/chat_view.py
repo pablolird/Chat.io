@@ -13,6 +13,7 @@ from PySide6.QtCore import (
 from ui.startpage.start_classes import inputField
 from ui.mainpage.group_info import GroupInfo
 from ui.mainpage.chat_area import ChatArea, chatInput
+import os
 
 class ChatView(QWidget): # Definition of a chat space class
     def __init__(self, groupname):
@@ -57,7 +58,7 @@ class initialChat(QWidget):
                         }""")
         
         self.m_title = QLabel()
-        self.m_title.setPixmap(QPixmap("assets/icons/logo.png").scaled(300,300, Qt.KeepAspectRatio))
+        self.m_title.setPixmap(QPixmap(os.path.join("assets","icons","logo.png")).scaled(300,300, Qt.KeepAspectRatio))
         self.m_title.setStyleSheet("font-size: 36px; color: white; font-weight: bold;")
 
         self.m_subtitle = QLabel("#WeChat #SkibidiGroup")

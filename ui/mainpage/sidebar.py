@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QIcon
 import sys
+import os
 
 class iconButton(QWidget):
     def __init__(self, path, toolTip):
@@ -72,10 +73,10 @@ class SideBar(QWidget):
                            padding: 40px 5px;
                            background-color: #222831;""")
 
-        self.m_btn_profile = iconButton("assets/icons/Single-User-Shield--Streamline-Pixel.svg", "User Settings")
-        self.m_btn_settings = iconButton("assets/icons/Interface-Essential-Setting-Cog--Streamline-Pixel.svg", "General Settings")
-        self.m_btn_groups = iconButton("assets/icons/Multiple-User--Streamline-Pixel-2.svg", "Groups")
-        self.m_btn_addGroup = iconButton("assets/icons/Interface-Essential-Global-Public--Streamline-Pixel.svg", "Join/Create Group")
+        self.m_btn_profile = iconButton(os.path.join("assets","icons","Single-User-Shield--Streamline-Pixel.svg"), "User Settings")
+        self.m_btn_settings = iconButton(os.path.join("assets","icons","Interface-Essential-Setting-Cog--Streamline-Pixel.svg"), "General Settings")
+        self.m_btn_groups = iconButton(os.path.join("assets","icons","Multiple-User--Streamline-Pixel-2.svg"), "Groups")
+        self.m_btn_addGroup = iconButton(os.path.join("assets","icons","Interface-Essential-Global-Public--Streamline-Pixel.svg"), "Join/Create Group")
         
         self.m_layout.addWidget(self.m_btn_addGroup)
         self.m_layout.addWidget(self.m_btn_groups)
