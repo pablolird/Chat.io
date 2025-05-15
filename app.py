@@ -31,6 +31,8 @@ class MainWindow(QMainWindow):
     messageHistory = Signal(list)
     onlineUsers = Signal(list, int)
     modifyUserStatus = Signal(str, bool)
+    onlineCount = Signal(int, int)
+
 
     def __init__(self, sock):
         super().__init__()
@@ -64,14 +66,18 @@ class MainWindow(QMainWindow):
         self.m_main_page.m_chatsContainer.m_joinGroup.m_send.clicked.connect(lambda: self.sendRequest("/join_server "+self.m_main_page.m_chatsContainer.m_joinGroup.m_groupName.text()))
 
         self.serversReceived.connect(self.getMyServers)
-
         self.messageReceived.connect(self.displayMessage)
-
         self.messageHistory.connect(self.loadHistory)
-
         self.onlineUsers.connect(self.showUsers)
-
         self.modifyUserStatus.connect(self.changeUserStatus)
+        self.onlineCount.connect(self.updateOnlineCount)
+
+
+    def updateOnlineCount(self, userCount, serverID):
+        groupID = self.m_main_page.m_serverIDtoGroupBarIndex[serverID]
+        group = self.m_main_page.m_mainBar.m_groupBar.m_groups[groupID]
+        group.m_groupInfo.updateCount(userCount)
+
     
     def changeUserStatus(self, username, flag):
         for key in self.m_main_page.m_chatsContainer.m_chats:
@@ -79,17 +85,40 @@ class MainWindow(QMainWindow):
             if username in chat.m_members:
                 print(f"{username} belongs to {chat.m_chatID}")
                 chat.changeMemberStatus(username, flag)
+                self.updateOnlineCount(chat.m_onlineCount, chat.m_chatID)
 
     def showUsers(self, list, serverID):
+        chat = self.m_main_page.m_chatsContainer.m_chats[serverID]
+        
+        # Clear previous members
+        chat.m_members.clear()
+        members_container = chat.m_groupDescription.m_membersBar.m_membersContainer
+        members_info = members_container.m_membersInfo
+
+        # Clear member widgets from layout
+        layout = members_container.m_layout
+        for i in reversed(range(layout.count())):
+            widget = layout.itemAt(i).widget()
+            if widget is not None:
+                layout.removeWidget(widget)
+                widget.setParent(None)
+
+        members_info.clear()
+        chat.m_onlineCount = 0
+
         for member in list:
             username = member.get('username', 'Unknown')
             user_id = member.get('user_id')
             online = member.get('is_online')
             admin_indicator = "admin" if member.get('is_admin') else "user"
 
-            chat = self.m_main_page.m_chatsContainer.m_chats[serverID]
+            
             chat.addMember(username, user_id, admin_indicator, online)
 
+            if (online):
+                chat.m_onlineCount+=1
+                self.updateOnlineCount(chat.m_onlineCount, serverID)
+        
 
     def loadHistory(self, list):
         for message in list:
@@ -443,6 +472,9 @@ class MainWindow(QMainWindow):
         group.clicked.connect(lambda: self.switchChat(group))
         self.m_main_page.m_mainBar.m_groupBar.m_groups.append(group)
         self.m_main_page.m_mainBar.m_groupBar.m_container_layout.addWidget(group)
+        groupIndex = self.m_main_page.m_mainBar.m_groupBar.m_container_layout.indexOf(group)
+        self.m_main_page.m_serverIDtoGroupBarIndex[chatID] = groupIndex
+
         new_chat = Chat(name, chatID)
         self.m_main_page.m_chatsContainer.m_chats[chatID] = new_chat
         new_chat.m_chatView.m_inputMessageBar.m_inputBar.returnPressed.connect(lambda: self.sendMessage(new_chat.m_chatID))
