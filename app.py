@@ -501,14 +501,9 @@ class MainWindow(QMainWindow):
         
 
     def switchChat(self, group):
-        #self.m_chatsContainer.m_stack.setCurrentIndex(group.m_index)
         self.m_main_page.m_chatsContainer.m_stack.setCurrentIndex(self.m_main_page.serverIDtoIndex[group.m_chatID])
-        #self.sendRequest(f"/server_history {group.m_chatID}")
         for g in self.m_main_page.m_mainBar.m_groupBar.m_groups:
             g.setSelected(g == group)
-        
-        self.m_main_page.m_mainBar.m_addGroups.m_createGroup.setSelected(False)
-        self.m_main_page.m_mainBar.m_addGroups.m_joinGroup.setSelected(False)
 
 
 def send_json_client(sock, data_dict):
