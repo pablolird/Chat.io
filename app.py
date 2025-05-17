@@ -273,6 +273,7 @@ class MainWindow(QMainWindow):
                         request_json = {"action": "CREATE_SERVER", "payload": {"server_name": args_str}}
                     else:
                         print("CLIENT: Usage: /create_server <server_name>")
+                        self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.warn.emit("Invalid server name", 0)
 
                 elif command == "/list_servers":
                     request_json = {"action": "LIST_ALL_SERVERS"}
@@ -300,7 +301,10 @@ class MainWindow(QMainWindow):
                             warning = "CLIENT: Invalid server ID. Must be a number." 
                             print(warning)
                             # self.m_main_page.m_chatsContainer.m_joinGroup.warn(warning, 0)
-                    else: print("CLIENT: Usage: /join_server <server_id>")
+                    else: 
+                        print("CLIENT: Usage: /join_server <server_id>")
+                        self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Invalid server ID", 0)
+
 
                 elif command == "/leave_server":
                     if len(args_list) == 1:
