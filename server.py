@@ -99,36 +99,38 @@ def receive_json(sock):
         print(f"SERVER: Critical error in receive_json from {sock.getpeername()}: {e}")
         return None # General error
 
-def broadcast_system_message_to_server(server_id, server_name, message_text):
+def broadcast_system_message_to_server(server_id, server_name, message_text, action):
     thread_name = threading.current_thread().name # Get current thread name for logging
+    response = {"action_response_to": action, "status": "error", "message": "Unhandled action or error."}
     print(f"DEBUG: [{thread_name}] Attempting to broadcast SYSTEM message to server_id {server_id} ('{server_name}'): {message_text}")
-
-    system_message_payload = {
-        "type": "CHAT_MESSAGE", # Use the existing chat message type
-        "payload": {
-            "sender_user_id": SUPERUSER_ID,
+    message_id = database.add_message(server_id, SUPERUSER_ID, message_text)
+    if message_id:
+        chat_message_broadcast = {
+            "type": "CHAT_MESSAGE", # Use the existing chat message type
+                "payload": {
             "sender_username": SUPERUSER_USERNAME,
+            "sender_user_id": SUPERUSER_ID,
             "message": message_text,
             "timestamp": int(time.time()),
             "server_id": server_id,
-            "server_name": server_name 
+            "server_name": server_name,
+            "message_id": message_id
+            }
         }
-    }
-
-    members_of_server = database.get_server_members(server_id) 
-    if not members_of_server:
-        print(f"DEBUG: [{thread_name}] No members found for server_id {server_id} to broadcast system message.")
-        return
-
-    with lock: 
-        online_recipients = 0
-        for member in members_of_server:
-            member_id = member['user_id']
-            if member_id in authenticated_clients:
-                client_info = authenticated_clients[member_id]
-                if send_json(client_info['socket'], system_message_payload):
-                    online_recipients += 1
-        print(f"DEBUG: [{thread_name}] System message broadcast to {online_recipients}/{len(members_of_server)} members of server_id {server_id}.")
+        print(f"DEBUG: [{thread_name}] Relaying message from {SUPERUSER_USERNAME} to server '{server_name}' (ID: {server_id})")
+        
+        # Broadcast to all online members of that specific server
+        server_members = database.get_server_members(server_id)
+        with lock:
+            for member in server_members:
+                member_id = member['user_id']
+                if member_id in authenticated_clients: # Check if member is online
+                    # No need to check if member_id != self.user_id if client handles its own messages
+                    send_json(authenticated_clients[member_id]['socket'], chat_message_broadcast)
+        # No direct response to sender for SEND_CHAT_MESSAGE usually
+    else:
+        response["message"] = "Failed to save your message."
+        send_json(socket, response)
 
 # Global dictionary to store authenticated clients, keyed by user_id
 # Each value will be a dictionary: {'socket': client_socket, 'username': username, 'addr': addr, 'current_server_id': None}
@@ -341,7 +343,7 @@ class ClientThread(threading.Thread):
                                 response["message"] = f"Successfully joined server '{server_details['name']}'."
                                 send_json(self.client_socket, response) # Send response to joining user first
                                 # Now broadcast to the server
-                                broadcast_system_message_to_server(server_id_to_join, server_details['name'], f"{self.username} joined the server.")
+                                broadcast_system_message_to_server(server_id_to_join, server_details['name'], f"{self.username} joined the server.", action)
                             else:
                                 response["message"] = f"Failed to join server ID {server_id_to_join}."
                         except ValueError:
@@ -377,13 +379,13 @@ class ClientThread(threading.Thread):
                                     # Customize messages based on specific statuses from remove_user_from_server
                                     if leave_result["status"] == "SUCCESS_LEFT":
                                         response_message_for_client = f"You have left server '{server_name_for_messages}'."
-                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.")
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.", action)
                                     elif leave_result["status"] == "SUCCESS_ADMIN_LEFT_NEW_ADMIN_ASSIGNED":
                                         new_admin_info = leave_result.get("data", {})
                                         new_admin_username = new_admin_info.get("new_admin_username", "A new user")
                                         response_message_for_client = f"You have left server '{server_name_for_messages}'. {new_admin_username} is the new admin."
-                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.")
-                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"New admin is {new_admin_username}.")
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.", action)
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"New admin is {new_admin_username}.", action)
                                     elif leave_result["status"] == "SUCCESS_ADMIN_LEFT_SERVER_DELETED":
                                         response_message_for_client = f"You have left server '{server_name_for_messages}'. The server has been deleted."
                                     elif leave_result["status"] == "NOT_MEMBER":
