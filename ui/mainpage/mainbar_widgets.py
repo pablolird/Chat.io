@@ -1,7 +1,8 @@
 import os
 from PySide6.QtCore import (
     QSize, 
-    Qt, 
+    Qt,
+    Signal
 )
 from PySide6.QtWidgets import (
     QPushButton,
@@ -9,9 +10,11 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QWidget,
     QStackedWidget,
+    QLabel
 )
 from PySide6.QtGui import QIcon
 from ui.mainpage.chat_view import ChatView
+from ui.startpage.start_classes import inputField
 from ui.mainpage.group_info import GroupDescription, MemberInfo
 import os
 
@@ -52,7 +55,45 @@ class addGroupsBarButton(QPushButton):
         self.style().unpolish(self)
         self.style().polish(self)
 
+class groupForm(QWidget):
+    warn = Signal(str, bool)
 
+    def __init__(self, name, placeholder):
+        super().__init__()
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName(name)
+        self.setStyleSheet(f"QWidget#{name}"+"""{
+                            border-radius: 10px;
+                            border: none;
+                            color: white; border-radius: 0;
+                           }
+                            QPushButton { background-color: #948979; padding: 10px; }
+                        """)
+
+
+        self.m_groupName = inputField(placeholder)
+        self.m_send = QPushButton("Submit")
+        self.m_warning = QLabel()
+        self.m_warning.setAlignment(Qt.AlignCenter)
+        self.m_warning.setWordWrap(True)
+        self.m_warning.setStyleSheet("background-color: transparent; border: none;")
+
+        self.m_layout = QVBoxLayout()
+        self.m_layout.addWidget(self.m_groupName)
+        self.m_layout.addWidget(self.m_send)
+        self.m_layout.addWidget(self.m_warning)
+
+        self.setLayout(self.m_layout)
+
+        self.warn.connect(self.setWarning)
+
+    
+    def setWarning(self, text, flag):
+        self.m_warning.setText(text)
+        if flag:
+            self.m_warning.setStyleSheet("color: #40e215; border: none;")
+        else:
+            self.m_warning.setStyleSheet("color: #ff5454; border: none;")
 
 class addGroupsBar(QWidget):
     def __init__(self):
@@ -74,12 +115,43 @@ class addGroupsBar(QWidget):
         self.m_joinGroup = addGroupsBarButton(os.path.join("assets","icons","Search-User--Streamline-Pixel.svg"), "Join existing group")
         self.m_createGroup = addGroupsBarButton(os.path.join("assets","icons","User-Single-Aim--Streamline-Pixel.svg"), "Create group")
 
-        self.m_layout.addWidget(self.m_joinGroup)
-        self.m_layout.addWidget(self.m_createGroup)
+        self.m_buttonsContainer = QWidget()
+        self.m_buttonsContainer.setStyleSheet("background-color: transparent;")
+        self.m_buttonsLayout = QVBoxLayout()
+        self.m_buttonsContainer.setLayout(self.m_buttonsLayout)
+        self.m_buttonsLayout.addWidget(self.m_joinGroup)
+        self.m_buttonsLayout.addWidget(self.m_createGroup)
+        
+        self.m_stack = QStackedWidget()
+        self.m_stack.setStyleSheet("background-color: transparent; border: none; border-top: 1px solid #1f252d")
+        self.m_createGroupForm = groupForm("createGroup", "Enter group name...")
+        self.m_joinGroupForm = groupForm("joinGroup", "Enter group ID...")
+        self.m_joinGroup.setSelected(True)
+
+        self.m_stack.addWidget(self.m_joinGroupForm)
+        self.m_stack.addWidget(self.m_createGroupForm)
+
+
+        self.m_layout.addWidget(self.m_buttonsContainer)
+        self.m_layout.addWidget(self.m_stack)
 
         self.setLayout(self.m_layout)
         self.m_layout.addStretch()
-        self.setContentsMargins(9,9,9,9)
+        self.m_layout.setContentsMargins(0,0,0,0)
+        self.m_layout.setSpacing(0)
+
+        self.m_joinGroup.clicked.connect(lambda: self.update("join"))
+        self.m_createGroup.clicked.connect(lambda: self.update("create"))
+
+    def update(self, option):
+        if option=="join":
+            self.m_joinGroup.setSelected(True)
+            self.m_createGroup.setSelected(False)
+            self.m_stack.setCurrentIndex(0)
+        else:
+            self.m_joinGroup.setSelected(False)
+            self.m_createGroup.setSelected(True)
+            self.m_stack.setCurrentIndex(1)
 
 
 

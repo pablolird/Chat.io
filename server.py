@@ -562,7 +562,7 @@ def init_server(port):
         # Allow address reuse immediately
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) 
         print("Socket successfully created")
-        s.bind(('0.0.0.0', port))
+        s.bind(('127.0.0.1', port))
         print(f"Socket binded to {port}")
         s.listen(5) # Max 5 queued connections
         print("Socket is listening...")

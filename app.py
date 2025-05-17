@@ -74,10 +74,9 @@ class MainWindow(QMainWindow):
         self.m_start_page.m_loginSection.m_buttonContainer.m_loginButton.clicked.connect(self.handleLogin)
         self.m_start_page.m_loginSection.m_passwordInput.returnPressed.connect(self.handleLogin)
 
-        self.m_main_page.m_chatsContainer.m_createGroup.m_send.clicked.connect(lambda: self.sendRequest("/create_server "+self.m_main_page.m_chatsContainer.m_createGroup.m_groupName.text()))
+        self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.m_send.clicked.connect(lambda: self.sendRequest("/create_server "+self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.m_groupName.text()))
 
-
-        self.m_main_page.m_chatsContainer.m_joinGroup.m_send.clicked.connect(lambda: self.sendRequest("/join_server "+self.m_main_page.m_chatsContainer.m_joinGroup.m_groupName.text()))
+        self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_send.clicked.connect(lambda: self.sendRequest("/join_server "+self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_groupName.text()))
 
         self.serversReceived.connect(self.getMyServers)
         self.messageReceived.connect(self.displayMessage)
@@ -404,8 +403,10 @@ class MainWindow(QMainWindow):
                                 print("  No servers to display.")
                         elif action_response == "CREATE_SERVER":
                             print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
+                            self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.warn.emit("Group created successfully!", 1)
                             self.sendRequest("/my_servers")
                         elif action_response == "JOIN_SERVER":
+                            self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Joined group successfully!", 1)
                             self.sendRequest("/my_servers")
                         elif action_response == "SERVER_HISTORY": # Ensure this part is correct from previous step
                             server_name = data.get("server_name", "UnknownServer")
@@ -436,7 +437,7 @@ class MainWindow(QMainWindow):
                                 else:
                                     print("  No members found in this server.")
                     elif status=="error" and action_response=="JOIN_SERVER":
-                        self.m_main_page.m_chatsContainer.m_joinGroup.warn.emit(message,0)
+                        self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit(message,0)
             
                 elif response_data.get("type") == "CHAT_MESSAGE":
                     payload = response_data.get("payload", {})
@@ -448,8 +449,8 @@ class MainWindow(QMainWindow):
                     
                     print(f"({message_server_id}) [{ts}] {sender}: {msg_text}")
                     self.messageReceived.emit([message_server_id, ts, sender, msg_text])
-                    
-                
+                    if (sender=="SYSTEM"):
+                        self.onlineUsers.emit(members, message_server_id)
                 elif response_data.get("type") == "USER_JOINED": 
                     payload = response_data.get("payload", {})
                     # This is a global "joined the system" message, like online status.
