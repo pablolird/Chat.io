@@ -458,6 +458,7 @@ class MainWindow(QMainWindow):
                     print(f"({message_server_id}) [{ts}] {sender}: {msg_text}")
                     self.messageReceived.emit([message_server_id, ts, sender, msg_text])
                     if (sender=="SYSTEM"):
+                        self.sendRequest(f"/users_in_server {message_server_id}")
                         self.onlineUsers.emit(members, message_server_id)
                 elif response_data.get("type") == "USER_JOINED": 
                     payload = response_data.get("payload", {})
