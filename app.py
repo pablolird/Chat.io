@@ -200,6 +200,10 @@ class MainWindow(QMainWindow):
         text = list[3]
         print (f"{list[0]},{list[1]},{list[2]},{list[3]}")
 
+        if server_id not in self.m_main_page.m_chatsContainer.m_chats:
+            print(f"CLIENT: Received message for unknown server ID {server_id}. Ignoring for now.")
+            return  # Or queue it for later if needed
+
         self.m_main_page.m_chatsContainer.m_chats[server_id].m_chatView.m_chatArea.add_message(list[2],text, timestamp, isSender)
 
 
