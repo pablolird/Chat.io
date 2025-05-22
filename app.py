@@ -168,18 +168,29 @@ class MainWindow(QMainWindow):
 
     def getMyServers(self, servers):
         groupBar = self.m_main_page.m_mainBar.m_groupBar
-        # Clear UI
+        chatContainer = self.m_main_page.m_chatsContainer
+
+        # --- Clear existing chat widgets ---
+        for chat in chatContainer.m_chats.values():
+            chatContainer.m_stack.removeWidget(chat)
+            chat.deleteLater()
+        chatContainer.m_chats.clear()
+        self.m_main_page.serverIDtoIndex.clear()
+
+        # --- Clear sidebar UI ---
         while groupBar.m_container_layout.count():
             item = groupBar.m_container_layout.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
         groupBar.m_groups.clear()
+        self.m_main_page.m_serverIDtoGroupBarIndex.clear()
 
-        # Rebuild
+        # --- Rebuild from server list ---
         for server_item in servers:
             print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", Admin: {server_item.get('admin_username', 'N/A')}")
             self.addGroup(server_item.get('name'), server_item.get('server_id'))
+
 
 
     def sendMessage(self, ChatID):
