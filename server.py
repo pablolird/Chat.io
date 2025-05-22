@@ -338,14 +338,14 @@ class ClientThread(threading.Thread):
                             elif database.is_user_member(self.user_id, server_id_to_join):
                                 response["status"] = "error" # Or "info"
                                 response["message"] = f"You are already a member of server '{server_details['name']}'."
-                            elif database.add_user_to_server(self.user_id, server_id_to_join):
+                            else:
                                 response["status"] = "success"
                                 response["message"] = f"Successfully joined server '{server_details['name']}'."
-                                send_json(self.client_socket, response) # Send response to joining user first
-                                # Now broadcast to the server
                                 broadcast_system_message_to_server(server_id_to_join, server_details['name'], f"{self.username} joined the server.", action)
-                            else:
-                                response["message"] = f"Failed to join server ID {server_id_to_join}."
+                                database.add_user_to_server(self.user_id, server_id_to_join)
+                                send_json(self.client_socket, response) # Send response to joining user first
+                                
+                
                         except ValueError:
                             response["message"] = "Invalid server_id format for JOIN_SERVER."
                     else:
@@ -407,7 +407,7 @@ class ClientThread(threading.Thread):
 
                     else: # server_id_to_leave_str was None
                         response["message"] = "server_id missing in payload for LEAVE_SERVER."
-                    
+                
                     send_json(self.client_socket, response)
                     continue
 
