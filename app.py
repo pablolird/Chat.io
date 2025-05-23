@@ -15,10 +15,12 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QMainWindow,
     QApplication,
+    QWidget
 )
 from PySide6.QtGui import (
     QIcon,
-    QFontDatabase
+    QFontDatabase,
+    Qt
 )
 
 MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
@@ -42,7 +44,7 @@ def format_timestamp(unix_ts):
 class MainWindow(QMainWindow):
     serversReceived = Signal(list)  # Signal carrying a list of servers
     messageReceived = Signal(list)
-    messageHistory = Signal(list)
+    messageHistory = Signal(int, list)
     onlineUsers = Signal(list, int)
     modifyUserStatus = Signal(str, bool)
     onlineCount = Signal(int, int)
@@ -77,6 +79,9 @@ class MainWindow(QMainWindow):
         self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.m_send.clicked.connect(lambda: self.sendRequest("/create_server "+self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.m_groupName.text()))
 
         self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_send.clicked.connect(lambda: self.sendRequest("/join_server "+self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_groupName.text()))
+
+        #self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_send.clicked.connect(lambda: print("BUTTON CLICKED!\n"))
+
 
         self.serversReceived.connect(self.getMyServers)
         self.messageReceived.connect(self.displayMessage)
@@ -133,9 +138,23 @@ class MainWindow(QMainWindow):
                 self.updateOnlineCount(chat.m_onlineCount, serverID)
         
 
-    def loadHistory(self, list):
-        for message in list:
-            self.displayMessage(message)
+    def deleteHistory(self, server_id):
+        container = self.m_main_page.m_chatsContainer.m_chats[server_id].m_chatView.m_chatArea.m_container_layout
+
+        for child in container.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
+            child.setParent(None)
+            child.deleteLater()
+
+
+    def loadHistory(self, server_id, list):
+        self.deleteHistory(server_id)
+        for msg_data in list:
+            ts = format_timestamp(msg_data.get('timestamp'))
+            sender = msg_data.get('sender_username', 'Unknown')
+            content = msg_data.get('content', '')
+            print(f"  ({ts}) {sender}: {content}")
+            self.displayMessage([server_id,ts,sender,content])
+        print("  --- End of History ---")
 
 
     def handleRegister(self):
@@ -167,6 +186,7 @@ class MainWindow(QMainWindow):
 
 
     def getMyServers(self, servers):
+        print("\n\n\n\nSEXO!!!\n\n\n\n")
         groupBar = self.m_main_page.m_mainBar.m_groupBar
         chatContainer = self.m_main_page.m_chatsContainer
 
@@ -308,6 +328,7 @@ class MainWindow(QMainWindow):
                         request_json = {"action": "GET_SERVER_MEMBERS", "payload": {"server_id": target_server_id_for_request}}
 
                 elif command == "/join_server":
+                    print("\n\nTRYING TO JOIN SERVER\n\n")
                     if len(args_list) == 1:
                         try:
                             server_id = int(args_list[0])
@@ -315,7 +336,7 @@ class MainWindow(QMainWindow):
                         except ValueError:
                             warning = "CLIENT: Invalid server ID. Must be a number." 
                             print(warning)
-                            # self.m_main_page.m_chatsContainer.m_joinGroup.warn(warning, 0)
+                            self.m_main_page.m_chatsContainer.m_joinGroup.warn(warning, 0)
                     else: 
                         print("CLIENT: Usage: /join_server <server_id>")
                         self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Invalid server ID", 0)
@@ -432,13 +453,7 @@ class MainWindow(QMainWindow):
                             messages_history = data.get("messages", [])
                             print(f"  --- Message History for '{server_name}' (ID: {data.get('server_id')}) ---")
                             if messages_history:
-                                for msg_data in messages_history:
-                                    ts = format_timestamp(msg_data.get('timestamp'))
-                                    sender = msg_data.get('sender_username', 'Unknown')
-                                    content = msg_data.get('content', '')
-                                    print(f"  ({ts}) {sender}: {content}")
-                                    self.messageReceived.emit([data.get('server_id'),ts,sender,content])
-                                print("  --- End of History ---")
+                                self.messageHistory.emit(data.get('server_id'),messages_history)
                             else:
                                 print("  No messages found for this server.")
                         elif action_response == "GET_SERVER_MEMBERS":
@@ -516,6 +531,7 @@ class MainWindow(QMainWindow):
         self.m_main_page.m_chatsContainer.m_stack.addWidget(new_chat)
         chatIndex = self.m_main_page.m_chatsContainer.m_stack.indexOf(new_chat)
         self.m_main_page.serverIDtoIndex[chatID] = chatIndex
+        print("\n\n\n\n\n\nHOLA\n\n\n\n\n\n")
         self.sendRequest(f"/server_history {chatID}")
         self.sendRequest(f"/users_in_server {chatID}")
         
