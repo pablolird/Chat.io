@@ -327,7 +327,6 @@ class MainWindow(QMainWindow):
                         request_json = {"action": "GET_SERVER_MEMBERS", "payload": {"server_id": target_server_id_for_request}}
 
                 elif command == "/join_server":
-                    print("\n\nTRYING TO JOIN SERVER\n\n")
                     if len(args_list) == 1:
                         try:
                             server_id = int(args_list[0])
@@ -471,6 +470,7 @@ class MainWindow(QMainWindow):
                                     print("  No members found in this server.")
                     elif status=="error" and action_response=="JOIN_SERVER":
                         self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit(message,0)
+                        print("\n\n\nmessage\n\n\n")
             
                 elif response_data.get("type") == "CHAT_MESSAGE":
                     payload = response_data.get("payload", {})

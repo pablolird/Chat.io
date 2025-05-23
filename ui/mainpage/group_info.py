@@ -213,8 +213,8 @@ class MembersBar(QWidget):
         self.m_layout.addWidget(scrollArea)
         self.m_layout.addWidget(self.m_groupInviteContainer)
 
-        self.m_deleteGroupButton = QPushButton("Delete Group")
-        self.m_deleteGroupButton.setStyleSheet("""
+        self.m_leaveGroupButton = QPushButton("Leave Group")
+        self.m_leaveGroupButton.setStyleSheet("""
             QPushButton:focus {
                 outline: none;
             }
@@ -231,12 +231,12 @@ class MembersBar(QWidget):
                 color: #800000;
             }
         """)
-        self.m_deleteGroupButton.setCursor(Qt.PointingHandCursor)
-        self.m_deleteGroupButton.setMaximumWidth(self.width() * 0.3)
+        self.m_leaveGroupButton.setCursor(Qt.PointingHandCursor)
+        self.m_leaveGroupButton.setMaximumWidth(self.width() * 0.3)
 
         buttonLayout = QHBoxLayout()
         buttonLayout.setAlignment(Qt.AlignHCenter)
-        buttonLayout.addWidget(self.m_deleteGroupButton)
+        buttonLayout.addWidget(self.m_leaveGroupButton)
         self.m_layout.addLayout(buttonLayout)
 
         self.m_layout.setAlignment(Qt.AlignCenter)

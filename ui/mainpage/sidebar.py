@@ -41,9 +41,8 @@ class iconButton(QWidget):
                                         
                                     }
 
-
-                                    QWidget[selected="true"] {
-                                        background-color:  red;  /* Selected color */
+                                    QPushButton[selected="true"] {
+                                        background-color:  #1d222a /* Selected color */
                                     }
                                     
                                     QToolTip {
@@ -56,11 +55,11 @@ class iconButton(QWidget):
 
         self.m_layout.addWidget(self.m_button)
         self.setLayout(self.m_layout)
-    
+        
     def setSelected(self, is_selected):
-        self.setProperty("selected", is_selected)
-        self.style().unpolish(self)
-        self.style().polish(self)
+        self.m_button.setProperty("selected", is_selected)
+        self.m_button.style().unpolish(self.m_button)
+        self.m_button.style().polish(self.m_button)
 
 class SideBar(QWidget):
     def __init__(self):
@@ -73,15 +72,17 @@ class SideBar(QWidget):
                            padding: 40px 5px;
                            background-color: #222831;""")
 
-        self.m_btn_profile = iconButton(os.path.join("assets","icons","Single-User-Shield--Streamline-Pixel.svg"), "User Settings")
-        self.m_btn_settings = iconButton(os.path.join("assets","icons","Interface-Essential-Setting-Cog--Streamline-Pixel.svg"), "General Settings")
+        #self.m_btn_profile = iconButton(os.path.join("assets","icons","Single-User-Shield--Streamline-Pixel.svg"), "User Settings")
+        #self.m_btn_settings = iconButton(os.path.join("assets","icons","Interface-Essential-Setting-Cog--Streamline-Pixel.svg"), "General Settings")
         self.m_btn_groups = iconButton(os.path.join("assets","icons","Multiple-User--Streamline-Pixel-2.svg"), "Groups")
         self.m_btn_addGroup = iconButton(os.path.join("assets","icons","Interface-Essential-Global-Public--Streamline-Pixel.svg"), "Join/Create Group")
         
+        self.m_btn_groups.setSelected(True)
+
         self.m_layout.addWidget(self.m_btn_addGroup)
         self.m_layout.addWidget(self.m_btn_groups)
-        self.m_layout.addWidget(self.m_btn_settings)
-        self.m_layout.addWidget(self.m_btn_profile)
+        #self.m_layout.addWidget(self.m_btn_settings)
+        #self.m_layout.addWidget(self.m_btn_profile)
         self.m_layout.addStretch()
 
         self.setLayout(self.m_layout)

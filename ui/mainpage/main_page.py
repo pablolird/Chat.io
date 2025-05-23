@@ -69,8 +69,8 @@ class MainPage(QWidget):
 
         self.m_sidebar.m_btn_addGroup.m_button.clicked.connect(lambda: self.switchMainBar("addGroups"))
         self.m_sidebar.m_btn_groups.m_button.clicked.connect(lambda: self.switchMainBar("groupBar"))
-        self.m_sidebar.m_btn_profile.m_button.clicked.connect(lambda: self.switchMainBar("userConfig"))
-        self.m_sidebar.m_btn_settings.m_button.clicked.connect(lambda: self.switchMainBar("config"))
+        #self.m_sidebar.m_btn_profile.m_button.clicked.connect(lambda: self.switchMainBar("userConfig"))
+        #self.m_sidebar.m_btn_settings.m_button.clicked.connect(lambda: self.switchMainBar("config"))
 
     def switchToGroup(self, index):
         self.m_chatsContainer.m_stack.setCurrentIndex(index)
@@ -87,5 +87,5 @@ class MainPage(QWidget):
 
         self.m_sidebar.m_btn_addGroup.setSelected(key=="addGroups")
         self.m_sidebar.m_btn_groups.setSelected(key=="groupBar")
-        self.m_sidebar.m_btn_profile.setSelected(key=="userConfig")
-        self.m_sidebar.m_btn_settings.setSelected(key=="config")
+        #self.m_sidebar.m_btn_profile.setSelected(key=="userConfig")
+        #self.m_sidebar.m_btn_settings.setSelected(key=="config")
