@@ -189,17 +189,12 @@ def join_server(client_socket, response, user_id, username, server_id):
                 response["message"] = f"You are already a member of server '{server_details['name']}'."
                 send_json(client_socket, response)
                 return
-            elif database.add_user_to_server(user_id, server_id):
+            else:
                 response["status"] = "success"
                 response["message"] = f"Successfully joined server '{server_details['name']}'."
-                send_json(client_socket, response) # Send response to joining user first
-                # Now broadcast to the server
                 broadcast_system_message_to_server(server_id, server_details['name'], f"{username} joined the server.", response, client_socket)
-                return
-            else:
-                response["status"] = "error"
-                response["message"] = f"Failed to join server ID {server_id}."
-                send_json(client_socket, response)
+                database.add_user_to_server(user_id, server_id)
+                send_json(client_socket, response)   
                 return
         except ValueError:
             response["status"] = "error"
