@@ -163,9 +163,9 @@ class MembersBar(QWidget):
 
         scrollArea.setStyleSheet("""
                                     QScrollArea {
-                                        background-color: red;
+                                        background-color: #393E46;
                                         border: 1px solid #15191e;
-                                        border-radius: 15px;
+                                        border-radius: 5px;
                                         color: white;
                                     }
 
