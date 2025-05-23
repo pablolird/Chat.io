@@ -435,10 +435,7 @@ class MainWindow(QMainWindow):
                     if status == "success":
                         if action_response in ["LIST_ALL_SERVERS", "LIST_MY_SERVERS"]:
                             servers = data.get("servers", [])
-                            if servers:
-                                self.serversReceived.emit(servers)
-                            else:
-                                print("  No servers to display.")
+                            self.serversReceived.emit(servers)
                         elif action_response == "CREATE_SERVER":
                             print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
                             self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.warn.emit("Group created successfully!", 1)
@@ -528,7 +525,7 @@ class MainWindow(QMainWindow):
         new_chat.m_chatView.m_inputMessageBar.m_inputBar.returnPressed.connect(lambda: self.sendMessage(new_chat.m_chatID))
         self.m_main_page.m_chatsContainer.m_stack.addWidget(new_chat)
         chatIndex = self.m_main_page.m_chatsContainer.m_stack.indexOf(new_chat)
-        new_chat.m_groupDescription.m_membersBar.m_leaveGroupButton.connect(lambda: self.leaveGroup(new_chat.m_chatID))
+        new_chat.m_groupDescription.m_membersBar.m_leaveGroupButton.clicked.connect(lambda: self.leaveGroup(new_chat.m_chatID))
         self.m_main_page.serverIDtoIndex[chatID] = chatIndex
         self.sendRequest(f"/server_history {chatID}")
         self.sendRequest(f"/users_in_server {chatID}")
