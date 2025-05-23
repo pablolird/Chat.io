@@ -77,7 +77,6 @@ def receive_json(sock):
             sock.close() 
             return None
 
-
         # 3. Receive the actual JSON message data
         json_message_bytes = receive_all(sock, actual_message_length)
         if json_message_bytes is None:
@@ -99,9 +98,39 @@ def receive_json(sock):
         print(f"SERVER: Critical error in receive_json from {sock.getpeername()}: {e}")
         return None # General error
 
-def broadcast_system_message_to_server(server_id, server_name, message_text, action):
+def broadcast_message_to_server(username, user_id, server_id, server_name, message_text, response, client_socket):
+    # Persist the message
     thread_name = threading.current_thread().name # Get current thread name for logging
-    response = {"action_response_to": action, "status": "error", "message": "Unhandled action or error."}
+    message_id = database.add_message(server_id, user_id, message_text)
+    if message_id:
+        chat_message_broadcast = {
+            "type": "CHAT_MESSAGE",
+            "payload": {
+                "sender_username": username,
+                "sender_user_id": user_id,
+                "message": message_text,
+                "timestamp": int(time.time()),
+                "server_id": server_id,
+                "server_name": server_name, 
+                "message_id": message_id
+            }
+        }
+        print(f"DEBUG: [{thread_name}] Relaying message from {username} to server '{server_name}' (ID: {server_id})")
+        
+        # Broadcast to all online members of that specific server
+        server_members = database.get_server_members(server_id)
+        with lock:
+            for member in server_members:
+                member_id = member['user_id']
+                if member_id in authenticated_clients: # Check if member is online
+                    send_json(authenticated_clients[member_id]['socket'], chat_message_broadcast)
+
+    else:
+        response["message"] = "Failed to save your message."
+        send_json(client_socket, response)
+
+def broadcast_system_message_to_server(server_id, server_name, message_text, response, client_socket):
+    thread_name = threading.current_thread().name # Get current thread name for logging
     print(f"DEBUG: [{thread_name}] Attempting to broadcast SYSTEM message to server_id {server_id} ('{server_name}'): {message_text}")
     message_id = database.add_message(server_id, SUPERUSER_ID, message_text)
     if message_id:
@@ -130,7 +159,53 @@ def broadcast_system_message_to_server(server_id, server_name, message_text, act
         # No direct response to sender for SEND_CHAT_MESSAGE usually
     else:
         response["message"] = "Failed to save your message."
-        send_json(socket, response)
+        send_json(client_socket, response)
+
+def validate_membership(client_socket, response, user_id, server_details, target_server_id):
+    if not server_details:
+        response["message"] = f"Server ID {target_server_id} not found."
+        send_json(client_socket, response)
+        return False
+    
+    if not database.is_user_member(user_id, server_details['server_id']):
+        response["message"] = f"You are not a member of server '{server_details['name']}'."
+        send_json(client_socket, response)
+        return False
+    
+    return True
+
+def join_server(client_socket, response, user_id, username, server_id):
+    if server_id is not None:
+        try:
+            # Check if server exists
+            server_details = database.get_server_details(server_id)
+            if not server_details:
+                response["status"] = "error"
+                response["message"] = f"Server ID {server_id} not found."
+                send_json(client_socket, response)
+                return
+            elif database.is_user_member(user_id, server_id):
+                response["status"] = "info" # Or "info"
+                response["message"] = f"You are already a member of server '{server_details['name']}'."
+                send_json(client_socket, response)
+                return
+            else:
+                response["status"] = "success"
+                response["message"] = f"Successfully joined server '{server_details['name']}'."
+                broadcast_system_message_to_server(server_id, server_details['name'], f"{username} joined the server.", response, client_socket)
+                database.add_user_to_server(user_id, server_id)
+                send_json(client_socket, response)   
+                return
+        except ValueError:
+            response["status"] = "error"
+            response["message"] = "Invalid server_id format for JOIN_SERVER."
+            send_json(client_socket, response)
+            return
+    else:
+        response["status"] = "error"
+        response["message"] = "server_id missing in payload for JOIN_SERVER."
+        send_json(client_socket, response)
+        return
 
 # Global dictionary to store authenticated clients, keyed by user_id
 # Each value will be a dictionary: {'socket': client_socket, 'username': username, 'addr': addr, 'current_server_id': None}
@@ -199,47 +274,11 @@ class ClientThread(threading.Thread):
                         
                         # Validate server and membership
                         server_details = database.get_server_details(target_server_id)
-                        if not server_details:
-                            response["message"] = f"Server ID {target_server_id} not found."
-                            send_json(self.client_socket, response)
-                            continue
-                        
-                        if not database.is_user_member(self.user_id, target_server_id):
-                            response["message"] = f"You are not a member of server '{server_details['name']}'."
-                            send_json(self.client_socket, response)
+                        if (validate_membership(self.client_socket, response, self.user_id, server_details, target_server_id)):
+                            # Persist the message
+                            broadcast_message_to_server(self.username, self.user_id, target_server_id, server_details['name'], message_content, response, self.client_socket)
                             continue
 
-                        # Persist the message
-                        message_id = database.add_message(target_server_id, self.user_id, message_content)
-                        if message_id:
-                            chat_message_broadcast = {
-                                "type": "CHAT_MESSAGE",
-                                "payload": {
-                                    "sender_username": self.username,
-                                    "sender_user_id": self.user_id,
-                                    "message": message_content,
-                                    "timestamp": int(time.time()),
-                                    "server_id": target_server_id,
-                                    "server_name": server_details['name'], # Include server name
-                                    "message_id": message_id
-                                }
-                            }
-                            print(f"DEBUG: [{thread_name}] Relaying message from {self.username} to server '{server_details['name']}' (ID: {target_server_id})")
-                            
-                            # Broadcast to all online members of that specific server
-                            server_members = database.get_server_members(target_server_id)
-                            with lock:
-                                for member in server_members:
-                                    member_id = member['user_id']
-                                    if member_id in authenticated_clients: # Check if member is online
-                                        # No need to check if member_id != self.user_id if client handles its own messages
-                                        send_json(authenticated_clients[member_id]['socket'], chat_message_broadcast)
-                            # No direct response to sender for SEND_CHAT_MESSAGE usually
-                            continue 
-                        else:
-                            response["message"] = "Failed to save your message."
-                            send_json(self.client_socket, response)
-                            continue
                     except ValueError:
                         response["message"] = "Invalid server_id format for SEND_CHAT_MESSAGE."
                         send_json(self.client_socket, response)
@@ -328,28 +367,8 @@ class ClientThread(threading.Thread):
 
                 elif action == "JOIN_SERVER":
                     server_id_to_join = payload.get("server_id")
-                    if server_id_to_join is not None:
-                        try:
-                            server_id_to_join = int(server_id_to_join)
-                            # Check if server exists
-                            server_details = database.get_server_details(server_id_to_join)
-                            if not server_details:
-                                response["message"] = f"Server ID {server_id_to_join} not found."
-                            elif database.is_user_member(self.user_id, server_id_to_join):
-                                response["status"] = "error" # Or "info"
-                                response["message"] = f"You are already a member of server '{server_details['name']}'."
-                            else:
-                                response["status"] = "success"
-                                response["message"] = f"Successfully joined server '{server_details['name']}'."
-                                broadcast_system_message_to_server(server_id_to_join, server_details['name'], f"{self.username} joined the server.", action)
-                                database.add_user_to_server(self.user_id, server_id_to_join)
-                                send_json(self.client_socket, response) # Send response to joining user first
-                                
-                
-                        except ValueError:
-                            response["message"] = "Invalid server_id format for JOIN_SERVER."
-                    else:
-                        response["message"] = "server_id missing in payload for JOIN_SERVER."
+                    server_id_to_join = int(server_id_to_join)
+                    join_server(self.client_socket, response, self.user_id, self.username, server_id_to_join)
                 
                 elif action == "LEAVE_SERVER":
                     server_id_to_leave_str = payload.get("server_id")
@@ -379,13 +398,13 @@ class ClientThread(threading.Thread):
                                     # Customize messages based on specific statuses from remove_user_from_server
                                     if leave_result["status"] == "SUCCESS_LEFT":
                                         response_message_for_client = f"You have left server '{server_name_for_messages}'."
-                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.", action)
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.", response, self.client_socket)
                                     elif leave_result["status"] == "SUCCESS_ADMIN_LEFT_NEW_ADMIN_ASSIGNED":
                                         new_admin_info = leave_result.get("data", {})
                                         new_admin_username = new_admin_info.get("new_admin_username", "A new user")
                                         response_message_for_client = f"You have left server '{server_name_for_messages}'. {new_admin_username} is the new admin."
-                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.", action)
-                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"New admin is {new_admin_username}.", action)
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"{self.username} left the server.", response, self.client_socket)
+                                        broadcast_system_message_to_server(server_id_to_leave, server_name_for_messages, f"New admin is {new_admin_username}.", response, self.client_socket)
                                     elif leave_result["status"] == "SUCCESS_ADMIN_LEFT_SERVER_DELETED":
                                         response_message_for_client = f"You have left server '{server_name_for_messages}'. The server has been deleted."
                                     elif leave_result["status"] == "NOT_MEMBER":
@@ -407,7 +426,7 @@ class ClientThread(threading.Thread):
 
                     else: # server_id_to_leave_str was None
                         response["message"] = "server_id missing in payload for LEAVE_SERVER."
-                
+                    
                     send_json(self.client_socket, response)
                     continue
 
@@ -441,7 +460,7 @@ class ClientThread(threading.Thread):
                     response["message"] = f"Unknown or unsupported action: {action}"
                 
                 # Send the determined response back to the client for most actions
-                if action not in ["SEND_CHAT_MESSAGE", "DISCONNECT"]: # These don't get a direct "response" in this flow
+                if action not in ["SEND_CHAT_MESSAGE", "DISCONNECT", "JOIN_SERVER"]: # These don't get a direct "response" in this flow
                     send_json(self.client_socket, response)
 
         except Exception as e:
@@ -564,7 +583,7 @@ def init_server(port):
         # Allow address reuse immediately
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) 
         print("Socket successfully created")
-        s.bind(('127.0.0.1', port))
+        s.bind(('0.0.0.0', port))
         print(f"Socket binded to {port}")
         s.listen(5) # Max 5 queued connections
         print("Socket is listening...")
