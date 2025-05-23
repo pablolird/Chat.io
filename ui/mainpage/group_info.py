@@ -10,7 +10,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QGridLayout,
-    QWidget
+    QWidget,
+    QScrollArea,
+    QSizePolicy
 )
 from PySide6.QtGui import (
     QIcon,
@@ -27,7 +29,8 @@ class GroupInfo(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet("background-color: #222831; color: white; padding: 10px;")
 
-        self.m_onlineUsers = ["Lol", "Roberto", "XD"]
+        #self.m_onlineUsers = ["Lol", "Roberto", "XD"]
+        self.m_onlineUsers = []
         self.m_groupName = QLabel(groupName)
         self.m_groupName.setAlignment(Qt.AlignCenter)
         self.m_groupName.setStyleSheet("font-size: 24px; font-weight: bold; padding: 15px;")
@@ -91,10 +94,15 @@ class MembersContainer(QWidget):
         self.m_membersInfo = {}
 
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background-color: #393E46; border: 1px solid #15191e; border-radius: 15px; color: white;")
+        self.setStyleSheet("border-radius: 15px; color: white;")
 
         self.m_layout = QVBoxLayout()
+        self.m_layout.setAlignment(Qt.AlignTop)  # Align all member widgets to the top
         self.setLayout(self.m_layout)
+
+        # ❗ Important: Let container grow only as needed
+        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.setSizePolicy(sizePolicy)
 
 class GroupInviteContainer(QWidget):
     def __init__(self):
@@ -149,52 +157,95 @@ class MembersBar(QWidget):
 
         self.m_membersContainer = MembersContainer()
 
+        # ➤ Wrap MembersContainer in a QScrollArea
+        scrollArea = QScrollArea()
+        scrollArea.setWidgetResizable(True)
+
+        scrollArea.setStyleSheet("""
+                                    QScrollArea {
+                                        background-color: red;
+                                        border: 1px solid #15191e;
+                                        border-radius: 15px;
+                                        color: white;
+                                    }
+
+                                    QScrollBar:vertical {
+                                        background: #222831;
+                                        width: 10px;
+                                        margin: 0px;
+                                        border-radius: 5px;
+                                    }
+
+                                    QScrollBar::handle:vertical {
+                                        background: #888;
+                                        min-height: 20px;
+                                        border-radius: 5px;
+                                    }
+
+                                    QScrollBar::handle:vertical:hover {
+                                        background: #aaa;
+                                    }
+
+                                    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                                        height: 0px;
+                                    }
+                                """)
+
+
+
         self.m_groupInviteContainer = GroupInviteContainer()
 
         self.m_layout = QVBoxLayout()
-        self.m_layout.setContentsMargins(20,20,20,20)
+        self.m_layout.setContentsMargins(20, 20, 20, 20)
         self.m_layout.setSpacing(20)
-        self.m_layout.addWidget(self.m_membersContainer)
+
+        # ➤ Add scrollArea instead of direct membersContainer
+
+        # Wrapper widget to center MembersContainer
+        wrapper = QWidget()
+        wrapperLayout = QVBoxLayout()
+        wrapperLayout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)  # Align center horizontally, top vertically
+        wrapperLayout.addWidget(self.m_membersContainer)
+        wrapper.setLayout(wrapperLayout)
+
+        scrollArea.setWidget(wrapper)
+
+        self.m_layout.addWidget(scrollArea)
         self.m_layout.addWidget(self.m_groupInviteContainer)
 
         self.m_deleteGroupButton = QPushButton("Delete Group")
         self.m_deleteGroupButton.setStyleSheet("""
-                            QPushButton:focus {
-                                outline: none;
-                            }
-
-                            QPushButton {
-                                border: 1px solid #ff3333;
-                                background-color: #222831;
-                                outline: none;
-                                color: #ff3333;
-                                padding: 10px;
-                                border-radius: 10px;
-                            }
-                                       
-                            QPushButton::hover {
-                                background-color: #ff3333;
-                                color: #800000;
-                            }""")
-
+            QPushButton:focus {
+                outline: none;
+            }
+            QPushButton {
+                border: 1px solid #ff3333;
+                background-color: #222831;
+                outline: none;
+                color: #ff3333;
+                padding: 10px;
+                border-radius: 10px;
+            }                                      
+            QPushButton::hover {
+                background-color: #ff3333;
+                color: #800000;
+            }
+        """)
         self.m_deleteGroupButton.setCursor(Qt.PointingHandCursor)
-        self.m_deleteGroupButton.setMaximumWidth(self.width()*0.3)
-        # Create a horizontal layout just for centering the button
-        buttonLayout = QHBoxLayout()
-        buttonLayout.setAlignment(Qt.AlignHCenter)  # Center horizontally
-        buttonLayout.addWidget(self.m_deleteGroupButton)
+        self.m_deleteGroupButton.setMaximumWidth(self.width() * 0.3)
 
-        self.m_layout.addLayout(buttonLayout)  # Add the horizontal layout 
+        buttonLayout = QHBoxLayout()
+        buttonLayout.setAlignment(Qt.AlignHCenter)
+        buttonLayout.addWidget(self.m_deleteGroupButton)
+        self.m_layout.addLayout(buttonLayout)
 
         self.m_layout.setAlignment(Qt.AlignCenter)
         self.m_layout.addStretch()
         self.setLayout(self.m_layout)
 
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Update max width of all bubbles on resize
-        self.m_membersContainer.setMaximumWidth(self.width()*0.8)
+        self.m_membersContainer.setMaximumWidth(self.width() * 0.8)
 
 class GroupDescriptionBar(QWidget):
     def __init__(self, groupname):

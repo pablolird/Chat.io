@@ -186,7 +186,6 @@ class MainWindow(QMainWindow):
 
 
     def getMyServers(self, servers):
-        print("\n\n\n\nSEXO!!!\n\n\n\n")
         groupBar = self.m_main_page.m_mainBar.m_groupBar
         chatContainer = self.m_main_page.m_chatsContainer
 
@@ -531,7 +530,6 @@ class MainWindow(QMainWindow):
         self.m_main_page.m_chatsContainer.m_stack.addWidget(new_chat)
         chatIndex = self.m_main_page.m_chatsContainer.m_stack.indexOf(new_chat)
         self.m_main_page.serverIDtoIndex[chatID] = chatIndex
-        print("\n\n\n\n\n\nHOLA\n\n\n\n\n\n")
         self.sendRequest(f"/server_history {chatID}")
         self.sendRequest(f"/users_in_server {chatID}")
         
