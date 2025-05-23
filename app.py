@@ -470,7 +470,6 @@ class MainWindow(QMainWindow):
                                     print("  No members found in this server.")
                     elif status=="error" and action_response=="JOIN_SERVER":
                         self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit(message,0)
-                        print("\n\n\nmessage\n\n\n")
             
                 elif response_data.get("type") == "CHAT_MESSAGE":
                     payload = response_data.get("payload", {})
@@ -529,10 +528,15 @@ class MainWindow(QMainWindow):
         new_chat.m_chatView.m_inputMessageBar.m_inputBar.returnPressed.connect(lambda: self.sendMessage(new_chat.m_chatID))
         self.m_main_page.m_chatsContainer.m_stack.addWidget(new_chat)
         chatIndex = self.m_main_page.m_chatsContainer.m_stack.indexOf(new_chat)
+        new_chat.m_groupDescription.m_membersBar.m_leaveGroupButton.connect(lambda: self.leaveGroup(new_chat.m_chatID))
         self.m_main_page.serverIDtoIndex[chatID] = chatIndex
         self.sendRequest(f"/server_history {chatID}")
         self.sendRequest(f"/users_in_server {chatID}")
-        
+    
+
+    def leaveGroup(self, groupID):
+        self.sendRequest(f"/leave_server {groupID}")
+        self.sendRequest("/my_servers")
 
     def switchChat(self, group):
         self.m_main_page.m_chatsContainer.m_stack.setCurrentIndex(self.m_main_page.serverIDtoIndex[group.m_chatID])

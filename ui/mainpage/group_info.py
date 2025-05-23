@@ -1,7 +1,6 @@
 from PySide6.QtCore import (
     QSize, 
     Qt, 
-    Signal, 
     Signal)
 from PySide6.QtWidgets import (
     QApplication,
@@ -242,6 +241,7 @@ class MembersBar(QWidget):
         self.m_layout.setAlignment(Qt.AlignCenter)
         self.m_layout.addStretch()
         self.setLayout(self.m_layout)
+    
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
