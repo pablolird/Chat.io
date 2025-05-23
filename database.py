@@ -1,9 +1,13 @@
 import sqlite3
 import time # For Unix timestamps
+import secrets
 
 SUPER_USER_ID = 1
 SUPER_USER_USERNAME = "SYSTEM"
 DATABASE_FILE = 'chat_app.db'
+
+def generate_invite_code(length = 12):
+    return secrets.token_urlsafe(length)[:length]
 
 def add_user(username, password):
     """Adds a new user to the database with a password."""
@@ -70,45 +74,86 @@ def check_user_credentials(username, password):
 # --- Server Management Functions ---
 
 def create_server(server_name, admin_user_id):
-    """Creates a new server and makes the admin_user_id its first member."""
     conn = None
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-        conn.execute("PRAGMA foreign_keys = ON;") # Ensure foreign key constraints are active
-        
+        conn.execute("PRAGMA foreign_keys = ON;")
+
         current_time = int(time.time())
-        
-        # Insert into servers table
-        cursor.execute("INSERT INTO servers (name, admin_user_id, created_at) VALUES (?, ?, ?)",
-                       (server_name, admin_user_id, current_time))
-        server_id = cursor.lastrowid 
-        
+
+        # Generate a unique invite code
+        invite_code = None
+        while True:
+            temp_code = generate_invite_code(12) 
+            cursor.execute("SELECT 1 FROM servers WHERE invite_code = ?", (temp_code,))
+            if cursor.fetchone() is None:
+                invite_code = temp_code
+                break # Found a unique code
+
+        cursor.execute("""
+            INSERT INTO servers (name, admin_user_id, created_at, invite_code) 
+            VALUES (?, ?, ?, ?)
+        """, (server_name, admin_user_id, current_time, invite_code))
+        server_id = cursor.lastrowid
+
         if server_id:
-            # Add the admin as the first member of this new server
             cursor.execute("INSERT INTO memberships (user_id, server_id, joined_at) VALUES (?, ?, ?)",
                            (admin_user_id, server_id, current_time))
             conn.commit()
-            print(f"Server '{server_name}' created with ID {server_id} and admin ID {admin_user_id}.")
-            return server_id
+            print(f"Server '{server_name}' (ID: {server_id}) created with invite code '{invite_code}' and admin ID {admin_user_id}.")
+            return {"server_id": server_id, "invite_code": invite_code} # Return more info
         else:
-            # This case (server_id is None after successful INSERT) is unlikely with AUTOINCREMENT
-            # but good to handle defensively.
             conn.rollback()
-            print(f"Failed to get server_id for new server '{server_name}'.")
             return None
-
-    except sqlite3.IntegrityError as e:
-        # e.g., if server names were UNIQUE and a duplicate was attempted.
-        # Or if admin_user_id doesn't exist (though FK constraint should catch this if user is deleted)
-        print(f"Database integrity error creating server '{server_name}': {e}")
-        if conn:
-            conn.rollback()
-        return None
-    except sqlite3.Error as e:
+    # ... (rest of your except and finally blocks, ensure rollback on error) ...
+    except sqlite3.Error as e: # Catch specific error
         print(f"Database error creating server '{server_name}': {e}")
+        if conn: conn.rollback()
+        return None
+    finally:
+        if conn: conn.close()
+
+def get_server_by_invite_code(invite_code):
+    """Retrieves server details by its invite code."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        # Join with users to get admin username as well
+        cursor.execute("""
+            SELECT s.server_id, s.name, s.admin_user_id, u.username as admin_username, s.invite_code
+            FROM servers s
+            JOIN users u ON s.admin_user_id = u.user_id
+            WHERE s.invite_code = ?
+        """, (invite_code,))
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        else:
+            return None
+    except sqlite3.Error as e:
+        print(f"Database error retrieving server by invite code '{invite_code}': {e}")
+        return None
+    finally:
         if conn:
-            conn.rollback()
+            conn.close()
+
+def get_invite_code_for_server(server_id):
+    """Retrieves the invite code for a specific server."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT invite_code, name FROM servers WHERE server_id = ?", (server_id,))
+        row = cursor.fetchone()
+        if row:
+            return {"invite_code": row[0], "server_name": row[1]}
+        else:
+            return None
+    except sqlite3.Error as e:
+        print(f"Database error retrieving invite code for server {server_id}: {e}")
         return None
     finally:
         if conn:
@@ -148,17 +193,17 @@ def get_all_servers():
     return servers_list
 
 def get_user_servers(user_id):
-    """Retrieves a list of servers a specific user is a member of."""
+    """Retrieves a list of servers a specific user is a member of, including invite codes."""
     conn = None
     user_servers_list = []
     try:
         conn = sqlite3.connect(DATABASE_FILE)
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row # Allows accessing columns by name
         cursor = conn.cursor()
         
-        # Joins servers, memberships, and users (for admin username)
+        # Modified SQL to include s.invite_code
         cursor.execute("""
-            SELECT s.server_id, s.name, s.admin_user_id, u_admin.username as admin_username
+            SELECT s.server_id, s.name, s.admin_user_id, u_admin.username as admin_username, s.invite_code
             FROM servers s
             JOIN memberships m ON s.server_id = m.server_id
             JOIN users u_admin ON s.admin_user_id = u_admin.user_id
@@ -172,7 +217,8 @@ def get_user_servers(user_id):
                 "server_id": row["server_id"],
                 "name": row["name"],
                 "admin_user_id": row["admin_user_id"],
-                "admin_username": row["admin_username"]
+                "admin_username": row["admin_username"],
+                "invite_code": row["invite_code"]  # <<< ADDED INVITE CODE HERE
             })
             
     except sqlite3.Error as e:
@@ -423,6 +469,7 @@ def initialize_database():
             name TEXT NOT NULL,
             admin_user_id INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
+            invite_code TEXT UNIQUE NOT NULL,
             FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE 
         );
         """)

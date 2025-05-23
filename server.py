@@ -174,38 +174,28 @@ def validate_membership(client_socket, response, user_id, server_details, target
     
     return True
 
-def join_server(client_socket, response, user_id, username, server_id):
-    if server_id is not None:
-        try:
-            # Check if server exists
-            server_details = database.get_server_details(server_id)
-            if not server_details:
-                response["status"] = "error"
-                response["message"] = f"Server ID {server_id} not found."
-                send_json(client_socket, response)
-                return
-            elif database.is_user_member(user_id, server_id):
-                response["status"] = "info" # Or "info"
-                response["message"] = f"You are already a member of server '{server_details['name']}'."
-                send_json(client_socket, response)
-                return
+def join_server(client_socket, response, user_id, username, invite_code_to_join):
+    if invite_code_to_join:
+        server_to_join = database.get_server_by_invite_code(invite_code_to_join)
+        if server_to_join:
+            server_id = server_to_join['server_id']
+            server_name = server_to_join['name']
+            if database.is_user_member(user_id, server_id):
+                response["message"] = f"You are already a member of server '{server_name}'."
             else:
-                response["status"] = "success"
-                response["message"] = f"Successfully joined server '{server_details['name']}'."
-                broadcast_system_message_to_server(server_id, server_details['name'], f"{username} joined the server.", response, client_socket)
+                # Broadcast system message about user joining this server
+                broadcast_system_message_to_server(server_id, server_name, f"{username} joined the server.", response, client_socket)
                 database.add_user_to_server(user_id, server_id)
-                send_json(client_socket, response)   
-                return
-        except ValueError:
-            response["status"] = "error"
-            response["message"] = "Invalid server_id format for JOIN_SERVER."
-            send_json(client_socket, response)
-            return
+                response["status"] = "success"
+                response["message"] = f"Successfully joined server '{server_name}'!"
+                response["data"] = {"server_id": server_id, "server_name": server_name}
+
+        else:
+            response["message"] = "Invalid invite code or server does not exist."
     else:
-        response["status"] = "error"
-        response["message"] = "server_id missing in payload for JOIN_SERVER."
-        send_json(client_socket, response)
-        return
+        response["message"] = "Invite code missing in payload for JOIN_SERVER."
+    send_json(client_socket, response)
+    return
 
 # Global dictionary to store authenticated clients, keyed by user_id
 # Each value will be a dictionary: {'socket': client_socket, 'username': username, 'addr': addr, 'current_server_id': None}
@@ -343,11 +333,16 @@ class ClientThread(threading.Thread):
                 elif action == "CREATE_SERVER":
                     server_name = payload.get("server_name")
                     if server_name:
-                        new_server_id = database.create_server(server_name, self.user_id)
-                        if new_server_id:
+                        created_server_info = database.create_server(server_name, self.user_id)
+                        if created_server_info: # This is now a dict from create_server
                             response["status"] = "success"
                             response["message"] = f"Server '{server_name}' created successfully."
-                            response["data"] = {"server_id": new_server_id, "server_name": server_name, "admin_id": self.user_id}
+                            response["data"] = { # Pass the dict directly
+                                "server_id": created_server_info['server_id'], 
+                                "server_name": server_name, 
+                                "admin_id": self.user_id,
+                                "invite_code": created_server_info['invite_code'] # Include invite code
+                            }
                         else:
                             response["message"] = f"Failed to create server '{server_name}'. It might already exist or database error."
                     else:
@@ -360,15 +355,17 @@ class ClientThread(threading.Thread):
                     response["data"] = {"servers": all_servers}
 
                 elif action == "LIST_MY_SERVERS":
-                    my_servers = database.get_user_servers(self.user_id) # This function now returns admin_username too
+                    my_servers = database.get_user_servers(self.user_id) # This now returns invite_code too
                     response["status"] = "success"
                     response["message"] = "Retrieved your servers."
-                    response["data"] = {"servers": my_servers}
+                    response["data"] = {"servers": my_servers} # my_servers now contains invite_code
+                    send_json(self.client_socket, response)
+                    continue
 
                 elif action == "JOIN_SERVER":
-                    server_id_to_join = payload.get("server_id")
-                    server_id_to_join = int(server_id_to_join)
-                    join_server(self.client_socket, response, self.user_id, self.username, server_id_to_join)
+                    invite_code_to_join = payload.get("invite_code")
+                    response = {"action_response_to": action, "status": "error"}
+                    join_server(self.client_socket, response, self.user_id, self.username, invite_code_to_join)
                 
                 elif action == "LEAVE_SERVER":
                     server_id_to_leave_str = payload.get("server_id")

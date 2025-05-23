@@ -1,3 +1,4 @@
 # Ignores all database files
 *.db
 chat_app.sqbpro
+__pycache__/

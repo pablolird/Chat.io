@@ -157,13 +157,12 @@ def sendingThread(sock):
                     if target_server_id_for_request is not None:
                         request_json = {"action": "GET_SERVER_MEMBERS", "payload": {"server_id": target_server_id_for_request}}
 
-                elif command == "/join_server":
-                    if len(args_list) == 1:
-                        try:
-                            server_id = int(args_list[0])
-                            request_json = {"action": "JOIN_SERVER", "payload": {"server_id": server_id}}
-                        except ValueError: print("CLIENT: Invalid server ID. Must be a number.")
-                    else: print("CLIENT: Usage: /join_server <server_id>")
+                elif command == "/join_server": # Renamed from /join_server
+                    if args_str: # Expecting a single argument: the invite code
+                        invite_code = args_str 
+                        request_json = {"action": "JOIN_SERVER", "payload": {"invite_code": invite_code}}
+                    else:
+                        print("CLIENT: Usage: /join_server <invite_code>")
 
                 elif command == "/leave_server":
                     if len(args_list) == 1:
@@ -198,14 +197,13 @@ def sendingThread(sock):
                     print("  /create_server <name>   - Create a new server.")
                     print("  /list_servers           - List all available servers.")
                     print("  /my_servers             - List servers you are a member of.")
-                    print("  /join_server <id>       - Join a server by its ID.")
-                    print("  /server_history <id>      - Set a server as your active context.")
+                    print("  /join_server <code>     - Join a server by its ID.")
+                    print("  /server_history <id>    - Set a server as your active context.")
                     print("  /leave_server <id>      - Leave a server by its ID.")
                     print("  /users_in_server [id]   - List users in a server (current if no id).")
                     print("  /message <id> <message> - Message to that specific server.")
                     print("  /close                  - Disconnect from the chat.")
                     print("  /help                   - Show this help message.")
-                    print("  (Anything else is a chat message for the current context)\n")
                 else:
                     print(f"CLIENT: Unknown command: {command}. Type /help for commands.")
                 
@@ -267,16 +265,22 @@ def receivingThread(sock):
             if action_response: 
                 print(f"SERVER ({action_response} - {status}): {message}")
                 if status == "success":
-                    if action_response in ["LIST_ALL_SERVERS", "LIST_MY_SERVERS"]:
+                    if action_response == "LIST_ALL_SERVERS" or action_response == "LIST_MY_SERVERS":
                         servers = data.get("servers", [])
                         if servers:
                             print("  Servers:")
-                            for server_item in servers: 
-                                print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", Admin: {server_item.get('admin_username', 'N/A')}")
+                            for server_item in servers:
+                                admin_info = f"Admin: {server_item.get('admin_username', 'N/A')}"
+                                invite_info = ""
+                                if action_response == "LIST_MY_SERVERS": # Only show invite code for /my_servers
+                                    invite_info = f", Invite Code: {server_item.get('invite_code', 'N/A')}"
+                                print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", {admin_info}{invite_info}")
                         else:
                             print("  No servers to display.")
                     elif action_response == "CREATE_SERVER":
-                        print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
+                        if status == "success":
+                            print(f"  Server Name: '{data.get('server_name')}', ID: {data.get('server_id')}")
+                            print(f"  Invite Code: {data.get('invite_code')}") # Display invite code
                     elif action_response == "SERVER_HISTORY": # Ensure this part is correct from previous step
                         server_name = data.get("server_name", "UnknownServer")
                         messages_history = data.get("messages", [])
