@@ -255,8 +255,8 @@ class GroupDescriptionBar(QWidget):
         self.setStyleSheet("background-color: transparent; color: white; padding: 10px;")
 
         self.m_button = QPushButton()
-        self.m_button.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Navigation-Left-Circle-2--Streamline-Pixel.svg")))
         self.m_button.setIconSize(QSize(28,28))
+        self.m_button.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Navigation-Left-Circle-2--Streamline-Pixel.svg")))
 
         self.m_button.setStyleSheet("""QPushButton:focus {
                                             border: none;

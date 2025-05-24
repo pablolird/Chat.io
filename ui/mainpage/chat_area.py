@@ -46,26 +46,7 @@ class chatInput(QWidget):
                                         }""")
 
         self.m_challengeButton = QPushButton()
-        self.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg")))
         self.m_challengeButton.setIconSize(QSize(32,32))
-
-        self.m_challengeButton.setStyleSheet("""
-                                    QPushButton {
-                                        border-radius: 10px;
-                                        padding: 7px;
-                                        border: 1px solid #1f252d;
-                                    }
-
-                                    QPushButton:focus {
-                                            border: 1px solid grey;
-                                            outline: none;
-                                        }
-
-                                    QPushButton:hover {
-                                        background-color: #2a313c;
-                                    } """)
-
-        self.m_challengeButton.setCursor(Qt.PointingHandCursor)    
 
         self.m_layout.addWidget(self.m_inputBar,8)
         self.m_layout.addWidget(self.m_challengeButton,1)

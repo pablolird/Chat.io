@@ -56,6 +56,8 @@ class MainWindow(QMainWindow):
         self.setGeometry(300, 90, 900, 600)
         self.setMinimumSize(900,500)
 
+        self.m_challengeClickable = True
+
         self.m_socket = sock
         self.m_receiving_thread = threading.Thread(target=self.receivingThread)
         self.m_receiving_thread.daemon = True
@@ -79,8 +81,6 @@ class MainWindow(QMainWindow):
         self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.m_send.clicked.connect(lambda: self.sendRequest("/create_server "+self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.m_groupName.text()))
 
         self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_send.clicked.connect(lambda: self.sendRequest("/join_server "+self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_groupName.text()))
-
-        #self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_send.clicked.connect(lambda: print("BUTTON CLICKED!\n"))
 
 
         self.serversReceived.connect(self.getMyServers)
@@ -129,14 +129,44 @@ class MainWindow(QMainWindow):
             user_id = member.get('user_id')
             online = member.get('is_online')
             admin_indicator = "admin" if member.get('is_admin') else "user"
+            inputBar = chat.m_chatView.m_inputMessageBar
+            inputBar.m_challengeButton.setStyleSheet("""
+                            QPushButton {
+                                border-radius: 10px;
+                                padding: 7px;
+                                border: 1px solid #1f252d;
+                            }
 
-            
+                            QPushButton:focus {
+                                    border: 1px solid grey;
+                                    outline: none;
+                                }
+
+                            QPushButton:hover {
+                                background-color: #2a313c;
+                            } """)
+
+            if username==self.m_username:
+                if admin_indicator=="user":
+                    inputBar.m_challengeButton.clicked.connect(lambda event: self.sendChallengeRequest())
+
+                    inputBar.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg")))
+                    
+                    inputBar.m_challengeButton.setCursor(Qt.PointingHandCursor)
+                else:
+                    inputBar.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel-grey.svg")))
+
+
+                
             chat.addMember(username, user_id, admin_indicator, online)
 
             if (online):
                 chat.m_onlineCount+=1
                 self.updateOnlineCount(chat.m_onlineCount, serverID)
         
+    def sendChallengeRequest(self):
+        print("SEXO GAY")
+
 
     def deleteHistory(self, server_id):
         container = self.m_main_page.m_chatsContainer.m_chats[server_id].m_chatView.m_chatArea.m_container_layout
