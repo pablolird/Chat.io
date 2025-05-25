@@ -252,6 +252,10 @@ def sendingThread(sock):
                     print("  /message <id> <message> - Message to that specific server.")
                     print("  /close                  - Disconnect from the chat.")
                     print("  /help                   - Show this help message.")
+                    print("  /user_kick <server_id> <user_id> - ")
+                    print("  /challenge_server_admin <server_id> - ")
+                    print("  /join_challenge <server_id>")
+                    print("  /accept_challenge <server_id> ")
                 else:
                     print(f"CLIENT: Unknown command: {command}. Type /help for commands.")
                 
@@ -330,6 +334,7 @@ def receivingThread(sock):
                         if status == "success":
                             print(f"  Server Name: '{data.get('server_name')}', ID: {data.get('server_id')}")
                             print(f"  Invite Code: {data.get('invite_code')}") # Display invite code
+                    
                     elif action_response == "SERVER_HISTORY": # Ensure this part is correct from previous step
                         server_name = data.get("server_name", "UnknownServer")
                         messages_history = data.get("messages", [])

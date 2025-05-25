@@ -460,28 +460,59 @@ class MainWindow(QMainWindow):
                 status = response_data.get("status")
                 message = response_data.get("message", "")
                 data = response_data.get("data", {})
-
+                
                 if action_response: 
                     print(f"SERVER ({action_response} - {status}): {message}")
                     if status == "success":
-                        if action_response in ["LIST_ALL_SERVERS", "LIST_MY_SERVERS"]:
+                        if action_response == "LIST_ALL_SERVERS" or action_response == "LIST_MY_SERVERS":
                             servers = data.get("servers", [])
-                            self.serversReceived.emit(servers)
+                            self.serversReceived.emit(servers) # <----
+                            if servers:
+                                print("  Servers:")
+                                for server_item in servers:
+                                    admin_info = f"Admin: {server_item.get('admin_username', 'N/A')}"
+                                    invite_info = ""
+                                    if action_response == "LIST_MY_SERVERS": # Only show invite code for /my_servers
+                                        invite_info = f", Invite Code: {server_item.get('invite_code', 'N/A')}"
+                                    print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", {admin_info}{invite_info}")
+                            else:
+                                print("  No servers to display.")
+
                         elif action_response == "CREATE_SERVER":
-                            print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
-                            self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.warn.emit("Group created successfully!", 1)
-                            self.sendRequest("/my_servers")
+                            if status == "success":
+                                print(f"  Server Name: '{data.get('server_name')}', ID: {data.get('server_id')}")
+                                print(f"  Invite Code: {data.get('invite_code')}") # Display invite code
+                                self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.warn.emit("Group created successfully!", 1) # <----
+                                self.sendRequest("/my_servers") # <----
+                        
                         elif action_response == "JOIN_SERVER":
-                            self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Joined group successfully!", 1)
-                            self.sendRequest("/my_servers")
+                            self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Joined group successfully!", 1) # <----
+                            self.sendRequest("/my_servers") # <----
+                        
                         elif action_response == "SERVER_HISTORY": # Ensure this part is correct from previous step
                             server_name = data.get("server_name", "UnknownServer")
                             messages_history = data.get("messages", [])
                             print(f"  --- Message History for '{server_name}' (ID: {data.get('server_id')}) ---")
-                            if messages_history:
-                                self.messageHistory.emit(data.get('server_id'),messages_history)
+                            if messages_history: # <----
+                                self.messageHistory.emit(data.get('server_id'),messages_history) # <----
                             else:
                                 print("  No messages found for this server.")
+                    
+                        elif action_response == "JOIN_CHALLENGE":
+                            # The main message from the server ("You have successfully joined..." or error)
+                            # is already printed by the generic response handler part:
+                            # print(f"SERVER ({action_response} - {status}): {message}")
+                            # No additional data payload expected for this specific response from server for now.
+                            pass # Generic message already printed.
+
+                        elif action_response == "CHALLENGE_ADMIN":
+                            # The main message from the server ("Challenge initiated..." or error)
+                            # is already printed by the generic response handler.
+                            # If successful, 'data' might contain challenge_id.
+                            if status == "success" and data.get("challenge_id"):
+                                print(f"  Challenge ID {data.get('challenge_id')} created for server '{data.get('server_name')}'.")
+                            # Additional specific display logic for this response if needed.
+
                         elif action_response == "GET_SERVER_MEMBERS":
                             if status == "success":
                                 server_name_from_resp = data.get("server_name", f"ID {data.get('server_id')}")
@@ -489,16 +520,48 @@ class MainWindow(QMainWindow):
                                 print(f"  --- Users in Server: '{server_name_from_resp}' ---")
                                 if members:
                                     print(f"SERVER ID IS: {data.get('server_id')}")
-                                    self.onlineUsers.emit(members, data.get('server_id'))
+                                    self.onlineUsers.emit(members, data.get('server_id')) # <----
                                     for member in members:
                                         online_status = "Online" if member.get('is_online') else "Offline"
                                         admin_indicator = "(Admin)" if member.get('is_admin') else ""
                                         print(f"    - {member.get('username', 'Unknown')} (ID: {member.get('user_id')}) - {online_status} {admin_indicator}".strip())
                                 else:
                                     print("  No members found in this server.")
+                    
                     elif status=="error" and action_response=="JOIN_SERVER":
-                        self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit(message,0)
+                        self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit(message,0) # <----
             
+                elif response_data.get("type") == "MINIGAME_INVITE": # <<< NEW BROADCAST TYPE HANDLER
+                            payload = response_data.get("payload", {})
+                            server_name = payload.get('server_name', 'Unknown Server')
+                            minigame_ip = payload.get('minigame_ip')
+                            minigame_port = payload.get('minigame_port')
+                            all_participants = payload.get('all_participants', [])
+                            
+                            print(f"\n--- MINIGAME INVITE for Server '{server_name}'! ---")
+                            print(f"  Challenge ID: {payload.get('challenge_id')}")
+                            print(f"  Connect to Minigame Server at: IP={minigame_ip}, Port={minigame_port}")
+                            print(f"  Game Type: {payload.get('game_type', 'N/A')}")
+                            print(f"  Participants: {', '.join(all_participants)}")
+                            print(f"  --- If you are a participant, you would now launch your minigame client! ---")
+                            # Example: os.system(f"minigame_client.exe {minigame_ip} {minigame_port}") # This is just a placeholder
+                            # For now, just print the info.
+
+                elif response_data.get("type") == "YOU_WERE_KICKED": # <<< NEW BROADCAST TYPE HANDLER
+                    payload = response_data.get("payload", {})
+                    server_name = payload.get('server_name', 'a server')
+                    kicked_by = payload.get('kicked_by_username', 'the admin')
+
+                    print(f"ALERT: You have been kicked from server '{server_name}' by Admin {kicked_by}.")
+
+                    # Optional: If client was tracking an active server context, clear it
+                    # global client_active_server_id, current_server_context_name
+                    # if client_active_server_id == payload.get('server_id'):
+                    #     print(f"CLIENT: You are no longer active in '{server_name}'.")
+                    #     client_active_server_id = None
+                    #     current_server_context_name = "Global" # Or some other default
+
+
                 elif response_data.get("type") == "CHAT_MESSAGE":
                     payload = response_data.get("payload", {})
                     sender = payload.get("sender_username", "Unknown")
@@ -508,22 +571,23 @@ class MainWindow(QMainWindow):
                     ts = format_timestamp(payload.get('timestamp'))
                     
                     print(f"({message_server_id}) [{ts}] {sender}: {msg_text}")
-                    self.messageReceived.emit([message_server_id, ts, sender, msg_text])
+                    
+                    self.messageReceived.emit([message_server_id, ts, sender, msg_text]) # <----
                     if (sender=="SYSTEM"):
-                        self.sendRequest(f"/users_in_server {message_server_id}")
-                        self.onlineUsers.emit(members, message_server_id)
+                        self.sendRequest(f"/users_in_server {message_server_id}") # <----
+                        self.onlineUsers.emit(members, message_server_id) # <----
                 elif response_data.get("type") == "USER_JOINED": 
                     payload = response_data.get("payload", {})
                     # This is a global "joined the system" message, like online status.
                     # Server-specific need more context
                     print(f"SERVER: {payload.get('username')} joined the chat system.")
-                    self.modifyUserStatus.emit(payload.get('username'), 1)
+                    self.modifyUserStatus.emit(payload.get('username'), 1) # <----
 
                 elif response_data.get("type") == "USER_LEFT": 
                     payload = response_data.get("payload", {})
                     # This is a global "left the system" message, like offline status.
                     print(f"SERVER: {payload.get('username')} (ID: {payload.get('user_id')}) left the chat system.")
-                    self.modifyUserStatus.emit(payload.get('username'), 0)
+                    self.modifyUserStatus.emit(payload.get('username'), 0) # <----
                 
                 elif status == "error" and not action_response:
                     print(f"SERVER ERROR: {message}")
