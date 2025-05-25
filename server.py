@@ -13,6 +13,8 @@ MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
 SUPERUSER_ID = 1
 SUPERUSER_USERNAME = "SYSTEM"
+CHALLENGE_USER_ID = 2
+CHALLENGE_USER_USERNAME = "CHALLENGE_NOTICE"
 MAX_CHALLENGE_PARTICIPANTS = 4
 DUMMY_MINIGAME_IP = "127.0.0.1"
 DUMMY_MINIGAME_PORT = 9999 # Example port
@@ -143,6 +145,38 @@ def broadcast_system_message_to_server(server_id, server_name, message_text, res
                 "payload": {
             "sender_username": SUPERUSER_USERNAME,
             "sender_user_id": SUPERUSER_ID,
+            "message": message_text,
+            "timestamp": int(time.time()),
+            "server_id": server_id,
+            "server_name": server_name,
+            "message_id": message_id
+            }
+        }
+        print(f"DEBUG: [{thread_name}] Relaying message from {SUPERUSER_USERNAME} to server '{server_name}' (ID: {server_id})")
+        
+        # Broadcast to all online members of that specific server
+        server_members = database.get_server_members(server_id)
+        with lock:
+            for member in server_members:
+                member_id = member['user_id']
+                if member_id in authenticated_clients: # Check if member is online
+                    # No need to check if member_id != self.user_id if client handles its own messages
+                    send_json(authenticated_clients[member_id]['socket'], chat_message_broadcast)
+        # No direct response to sender for SEND_CHAT_MESSAGE usually
+    else:
+        response["message"] = "Failed to save your message."
+        send_json(client_socket, response)
+
+def broadcast_challenge_message_to_server(server_id, server_name, message_text, response, client_socket):
+    thread_name = threading.current_thread().name # Get current thread name for logging
+    print(f"DEBUG: [{thread_name}] Attempting to broadcast SYSTEM message to server_id {server_id} ('{server_name}'): {message_text}")
+    message_id = database.add_message(server_id, CHALLENGE_USER_ID, message_text)
+    if message_id:
+        chat_message_broadcast = {
+            "type": "CHAT_MESSAGE", # Use the existing chat message type
+                "payload": {
+            "sender_username": CHALLENGE_USER_USERNAME,
+            "sender_user_id": CHALLENGE_USER_ID,
             "message": message_text,
             "timestamp": int(time.time()),
             "server_id": server_id,
@@ -607,7 +641,7 @@ class ClientThread(threading.Thread):
                                     response["data"] = {"challenge_id": challenge_id, "server_name": server_details['name']}
 
                                     # Broadcast notification to the server
-                                    broadcast_system_message_to_server(
+                                    broadcast_challenge_message_to_server(
                                         target_server_id, 
                                         server_details['name'],
                                         (f"{self.username} has challenged Admin {admin_username_to_challenge}! "
