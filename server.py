@@ -12,6 +12,9 @@ MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
 SUPERUSER_ID = 1
 SUPERUSER_USERNAME = "SYSTEM"
+MAX_CHALLENGE_PARTICIPANTS = 4
+DUMMY_MINIGAME_IP = "127.0.0.1"
+DUMMY_MINIGAME_PORT = 9999 # Example port
 
 def receive_all(sock, num_bytes_to_receive):
     received_data = bytearray()
@@ -279,6 +282,230 @@ class ClientThread(threading.Thread):
                     self.running = False
                     # No response needed, client will close. Server closes in finally.
                     break 
+                
+                elif action == "KICK_USER":
+                    payload_server_id_str = payload.get("server_id")
+                    payload_user_to_kick_id_str = payload.get("user_to_kick_id")
+                    
+                    response = {"action_response_to": action, "status": "error", "message": "Default error for KICK_USER."}
+
+                    if payload_server_id_str is None or payload_user_to_kick_id_str is None:
+                        response["message"] = "server_id and user_to_kick_id are required."
+                    else:
+                        try:
+                            target_server_id = int(payload_server_id_str)
+                            user_to_kick_id = int(payload_user_to_kick_id_str)
+
+                            server_details = database.get_server_details(target_server_id)
+
+                            if not server_details:
+                                response["message"] = f"Server ID {target_server_id} not found."
+                            elif server_details['admin_user_id'] != self.user_id: # Check if requester is admin
+                                response["message"] = "You are not the admin of this server and cannot kick users."
+                            elif user_to_kick_id == self.user_id: # Admin trying to kick self
+                                response["message"] = "Admins cannot kick themselves. Use /leave_server if you wish to leave."
+                            elif user_to_kick_id == SUPERUSER_ID: # Trying to kick system user
+                                response["message"] = "The SYSTEM user cannot be kicked."
+                            elif not database.is_user_member(user_to_kick_id, target_server_id):
+                                response["message"] = f"User ID {user_to_kick_id} is not a member of this server."
+                            else:
+                                kicked_user_details = database.get_user(user_to_kick_id) # To get username
+                                kicked_username = kicked_user_details['username'] if kicked_user_details else f"User_{user_to_kick_id}"
+                                removal_result = database.remove_user_from_server(user_to_kick_id, target_server_id)
+                                
+                                if removal_result.get("status") == "SUCCESS_LEFT" or \
+                                   removal_result.get("status") == "SUCCESS_ADMIN_LEFT_NEW_ADMIN_ASSIGNED" or \
+                                   removal_result.get("status") == "SUCCESS_ADMIN_LEFT_SERVER_DELETED": 
+
+                                    response["status"] = "success"
+                                    response["message"] = f"User '{kicked_username}' (ID: {user_to_kick_id}) has been kicked from server '{server_details['name']}'."
+                                    
+                                    # Notify the server
+                                    broadcast_system_message_to_server(
+                                        target_server_id,
+                                        server_details['name'],
+                                        f"User '{kicked_username}' has been kicked from the server by Admin {self.username}.",
+                                        response,
+                                        self.client_socket
+                                    )
+
+                                    # Notify the kicked user if they are online
+                                    with lock:
+                                        if user_to_kick_id in authenticated_clients:
+                                            kicked_user_socket = authenticated_clients[user_to_kick_id]['socket']
+                                            kick_notification_to_user = {
+                                                "type": "YOU_WERE_KICKED",
+                                                "payload": {
+                                                    "server_id": target_server_id,
+                                                    "server_name": server_details['name'],
+                                                    "kicked_by_username": self.username,
+                                                    "timestamp": int(time.time())
+                                                }
+                                            }
+                                            send_json(kicked_user_socket, kick_notification_to_user)
+                                            # Optionally, server could also close the kicked user's socket if direct action is needed,
+                                            # or update their state in authenticated_clients if tracking current_server_id.
+                                            # For now, client handles the notification.
+                                else:
+                                    response["message"] = f"Failed to kick user '{kicked_username}'. Reason: {removal_result.get('status', 'Unknown error')}"
+                                    if removal_result.get("status") == "NOT_MEMBER": # Should have been caught by is_user_member
+                                         response["message"] = f"User '{kicked_username}' was not found as a member during removal."
+
+
+                        except ValueError:
+                            response["message"] = "Invalid server_id or user_to_kick_id format. Must be numbers."
+                        except Exception as e_kick:
+                            print(f"DEBUG: [{thread_name}] Exception in KICK_USER for {self.username}: {e_kick}")
+                            response["message"] = f"An unexpected error occurred: {e_kick}"
+                    
+                    send_json(self.client_socket, response) # Send response to the admin who issued kick
+                    continue
+
+                elif action == "ACCEPT_CHALLENGE":
+                    server_id_str = payload.get("server_id")
+                    response = {"action_response_to": action, "status": "error"}
+
+                    if server_id_str is None:
+                        response["message"] = "server_id is required to accept a challenge."
+                    else:
+                        try:
+                            target_server_id = int(server_id_str)
+                            server_details = database.get_server_details(target_server_id) # To get server_name
+
+                            if not server_details:
+                                response["message"] = f"Server ID {target_server_id} not found."
+                            else:
+                                server_name = server_details.get('name', f"ServerID_{target_server_id}")
+                                active_challenge = database.get_active_challenge_for_server(target_server_id)
+
+                                if not active_challenge:
+                                    response["message"] = f"No active challenge found in server '{server_name}' to accept."
+                                elif active_challenge.get('status') != 'pending':
+                                    response["message"] = f"The challenge in server '{server_name}' is not 'pending' (current: {active_challenge.get('status')})."
+                                elif self.user_id != active_challenge.get('admin_user_id'):
+                                    response["message"] = "Only the challenged admin can accept this challenge."
+                                else:
+                                    challenge_id = active_challenge['challenge_id']
+                                    if database.update_challenge_status(challenge_id, "accepted"): # Or "in_progress"
+                                        response["status"] = "success"
+                                        response["message"] = "Challenge accepted! Minigame details will be sent to participants."
+                                        
+                                        # Simulate minigame server launch & get details
+                                        print(f"INFO: [{thread_name}] Admin {self.username} accepted challenge {challenge_id}. Minigame server would launch now.")
+                                        minigame_info_payload = {
+                                            "challenge_id": challenge_id,
+                                            "server_id": target_server_id,
+                                            "server_name": server_name,
+                                            "minigame_ip": DUMMY_MINIGAME_IP,
+                                            "minigame_port": DUMMY_MINIGAME_PORT,
+                                            "game_type": "DefaultMinigame" # Example
+                                        }
+
+                                        # Get all participants and send them the invite
+                                        participants = database.get_challenge_participants(challenge_id) # Should return list of {'user_id': X, 'username': Y}
+                                        participant_usernames = [p['username'] for p in participants]
+                                        minigame_info_payload["all_participants"] = participant_usernames
+
+                                        with lock:
+                                            for participant_data in participants:
+                                                p_user_id = participant_data['user_id']
+                                                if p_user_id in authenticated_clients:
+                                                    send_json(authenticated_clients[p_user_id]['socket'], {
+                                                        "type": "MINIGAME_INVITE",
+                                                        "payload": minigame_info_payload
+                                                    })
+                                        
+                                        # Broadcast to the server chat
+                                        broadcast_system_message_to_server(
+                                            target_server_id,
+                                            server_name,
+                                            (f"Admin {self.username} accepted the challenge! "
+                                             f"Minigame starting for participants: {', '.join(participant_usernames)}."),
+                                            response,
+                                            self.client_socket
+                                        )
+                                    else:
+                                        response["message"] = "Failed to update challenge status in the database."
+                        except ValueError:
+                            response["message"] = "Invalid server_id format."
+                        except Exception as e_accept_chal:
+                            print(f"DEBUG: [{thread_name}] Exception in ACCEPT_CHALLENGE: {e_accept_chal}")
+                            response["message"] = f"An unexpected error occurred: {e_accept_chal}"
+                    
+                    send_json(self.client_socket, response) # Send response to the admin who accepted
+                    continue
+
+                elif action == "JOIN_CHALLENGE":
+                    server_id_str = payload.get("server_id")
+                    response = {"action_response_to": action, "status": "error", "message": "Default error joining challenge."} # Default error
+
+                    if server_id_str is None:
+                        response["message"] = "server_id is required to join a challenge."
+                    else:
+                        try:
+                            target_server_id = int(server_id_str)
+                            server_details = database.get_server_details(target_server_id) # Returns dict or None
+
+                            if not server_details:
+                                response["message"] = f"Server ID {target_server_id} not found."
+                            elif not database.is_user_member(self.user_id, target_server_id): # Check if joiner is member of server
+                                response["message"] = f"You are not a member of server '{server_details.get('name', 'Unknown Server')}'."
+                            else:
+                                # Safely get server name for messages
+                                server_name = server_details.get('name', f"ServerID_{target_server_id}")
+
+                                active_challenge = database.get_active_challenge_for_server(target_server_id) # Returns dict or None
+
+                                if not active_challenge:
+                                    response["message"] = f"No active challenge found in server '{server_name}' to join."
+                                elif active_challenge.get('status') != 'pending': # Now safe to access 'status'
+                                    response["message"] = (f"The challenge in server '{server_name}' is not currently 'pending' "
+                                                           f"(current status: {active_challenge.get('status')}).")
+                                elif self.user_id == active_challenge.get('admin_user_id') or \
+                                     self.user_id == active_challenge.get('challenger_user_id'):
+                                    response["message"] = "You are already a primary participant (admin or original challenger) in this challenge."
+                                else:
+                                    challenge_id = active_challenge['challenge_id'] # Safe now
+                                    
+                                    # Get admin username for the notification message
+                                    admin_user_for_challenge = database.get_user(active_challenge['admin_user_id'])
+                                    admin_username_for_notification = "the Admin"
+                                    if admin_user_for_challenge and admin_user_for_challenge.get('username'):
+                                        admin_username_for_notification = admin_user_for_challenge['username']
+                                    
+                                    # Attempt to add participant
+                                    join_status = database.add_participant_to_challenge(
+                                        challenge_id, self.user_id, MAX_CHALLENGE_PARTICIPANTS # Ensure MAX_CHALLENGE_PARTICIPANTS is defined
+                                    )
+                                    
+                                    if join_status == "SUCCESS":
+                                        response["status"] = "success"
+                                        response["message"] = f"You have successfully joined the challenge (ID: {challenge_id}) in server '{server_name}'."
+                                        broadcast_system_message_to_server(
+                                            target_server_id,
+                                            server_name,
+                                            f"{self.username} has joined the challenge against Admin {admin_username_for_notification}!",
+                                            response,
+                                            self.client_socket
+                                        )
+                                    elif join_status == "ALREADY_JOINED":
+                                        response["message"] = "You have already joined this challenge."
+                                    elif join_status == "CHALLENGE_FULL":
+                                        response["message"] = "This challenge is already full."
+                                    elif join_status == "CHALLENGE_NOT_PENDING": # Should be caught earlier, but good fallback
+                                        response["message"] = "This challenge is no longer accepting new participants."
+                                    elif join_status == "ALREADY_A_PRIMARY_PARTICIPANT": # From add_participant_to_challenge
+                                        response["message"] = "You cannot join as an additional participant if you are the admin or original challenger."
+                                    else: # CHALLENGE_NOT_FOUND or ERROR from add_participant
+                                        response["message"] = f"Could not join challenge (Reason: {join_status})."
+                        except ValueError:
+                            response["message"] = "Invalid server_id format."
+                        except Exception as e_join_chal: # Catch any other unexpected error
+                            print(f"DEBUG: [{thread_name}] Exception in JOIN_CHALLENGE for {self.username}: {e_join_chal}")
+                            response["message"] = f"An unexpected error occurred while trying to join the challenge: {e_join_chal}"
+                    
+                    send_json(self.client_socket, response)
+                    continue
 
                 elif action == "GET_SERVER_MEMBERS":
                     server_id_to_query_str = payload.get("server_id")
@@ -347,6 +574,57 @@ class ClientThread(threading.Thread):
                             response["message"] = f"Failed to create server '{server_name}'. It might already exist or database error."
                     else:
                         response["message"] = "Server name missing in payload for CREATE_SERVER."
+                
+                elif action == "CHALLENGE_ADMIN":
+                    server_id_str = payload.get("server_id")
+                    response = {"action_response_to": action, "status": "error"}
+
+                    if server_id_str is None:
+                        response["message"] = "server_id is required."
+                    else:
+                        try:
+                            target_server_id = int(server_id_str)
+                            server_details = database.get_server_details(target_server_id)
+
+                            if not server_details:
+                                response["message"] = f"Server ID {target_server_id} not found."
+                            elif not database.is_user_member(self.user_id, target_server_id):
+                                response["message"] = f"You are not a member of server '{server_details['name']}'."
+                            elif self.user_id == server_details['admin_user_id']:
+                                response["message"] = "You cannot challenge yourself (you are the admin)."
+                            elif database.get_active_challenge_for_server(target_server_id):
+                                response["message"] = f"An active challenge already exists in server '{server_details['name']}'."
+                            else:
+                                admin_user_id_to_challenge = server_details['admin_user_id']
+                                admin_username_to_challenge = server_details['admin_username'] # From get_server_details
+
+                                challenge_id = database.create_challenge(target_server_id, self.user_id, admin_user_id_to_challenge)
+                                if challenge_id:
+                                    response["status"] = "success"
+                                    response["message"] = (f"Challenge initiated against admin {admin_username_to_challenge} "
+                                                           f"in server '{server_details['name']}'. Waiting for admin to accept. Challenge ID: {challenge_id}")
+                                    response["data"] = {"challenge_id": challenge_id, "server_name": server_details['name']}
+
+                                    # Broadcast notification to the server
+                                    broadcast_system_message_to_server(
+                                        target_server_id, 
+                                        server_details['name'],
+                                        (f"{self.username} has challenged Admin {admin_username_to_challenge}! "
+                                         f"Admin can type /accept_challenge {target_server_id}. " # Send server_id for context
+                                         f"Others can type /join_challenge {target_server_id}."), # Send server_id for context
+                                        response,
+                                        self.client_socket
+                                    )
+                                else:
+                                    response["message"] = "Failed to create challenge (database error or active challenge exists)."
+                        except ValueError:
+                            response["message"] = "Invalid server_id format."
+                        except Exception as e_chal:
+                            print(f"DEBUG: [{thread_name}] Exception in CHALLENGE_ADMIN: {e_chal}")
+                            response["message"] = f"An unexpected error occurred: {e_chal}"
+
+                    send_json(self.client_socket, response)
+                    continue
                 
                 elif action == "LIST_ALL_SERVERS":
                     all_servers = database.get_all_servers() # This function now returns admin_username too

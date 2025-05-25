@@ -2,3 +2,4 @@
 *.db
 chat_app.sqbpro
 __pycache__/
+__pycache__/database.cpython-313.pyc

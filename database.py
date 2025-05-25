@@ -73,6 +73,192 @@ def check_user_credentials(username, password):
 
 # --- Server Management Functions ---
 
+def get_challenge_participants(challenge_id):
+    """Retrieves a list of participants (user_id, username) for a given challenge."""
+    conn = None
+    participants = []
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT u.user_id, u.username 
+            FROM challenge_participants cp
+            JOIN users u ON cp.user_id = u.user_id
+            WHERE cp.challenge_id = ?
+            ORDER BY cp.joined_at ASC
+        """, (challenge_id,))
+        rows = cursor.fetchall()
+        for row in rows:
+            participants.append(dict(row))
+    except sqlite3.Error as e:
+        print(f"DB ERROR getting challenge participants for challenge_id {challenge_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return participants
+
+def update_challenge_status(challenge_id, new_status):
+    """Updates the status of a challenge and its updated_at timestamp."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        conn.execute("PRAGMA foreign_keys = ON;")
+        current_time = int(time.time())
+        
+        cursor.execute("""
+            UPDATE challenges 
+            SET status = ?, updated_at = ?
+            WHERE challenge_id = ? 
+        """, (new_status, current_time, challenge_id))
+        
+        if cursor.rowcount == 0:
+            print(f"DB: No challenge found with ID {challenge_id} to update status to {new_status}.")
+            conn.rollback() # Nothing was updated
+            return False
+            
+        conn.commit()
+        print(f"DB: Challenge ID {challenge_id} status updated to '{new_status}'.")
+        return True
+    except sqlite3.Error as e:
+        print(f"DB ERROR updating challenge status for {challenge_id}: {e}")
+        if conn: conn.rollback()
+        return False
+    finally:
+        if conn: conn.close()
+
+def add_participant_to_challenge(challenge_id, user_id, max_participants=4):
+    """
+    Adds a user to a challenge if it's pending and not full.
+    Returns:
+        "SUCCESS": User added.
+        "ALREADY_JOINED": User is already a participant.
+        "CHALLENGE_FULL": Challenge has reached max participants.
+        "CHALLENGE_NOT_PENDING": Challenge is not in 'pending' state.
+        "CHALLENGE_NOT_FOUND": Challenge ID does not exist (should be caught by get_active_challenge earlier).
+        "ERROR": Database error.
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        conn.execute("PRAGMA foreign_keys = ON;")
+
+        # Check challenge status
+        cursor.execute("SELECT status, challenger_user_id, admin_user_id FROM challenges WHERE challenge_id = ?", (challenge_id,))
+        challenge_row = cursor.fetchone()
+        if not challenge_row:
+            return "CHALLENGE_NOT_FOUND" # Should be caught by get_active_challenge logic in server
+        if challenge_row[0] != 'pending':
+            return "CHALLENGE_NOT_PENDING"
+
+        # Prevent admin or original challenger from re-joining via this mechanism
+        if user_id == challenge_row[1] or user_id == challenge_row[2]:
+            return "ALREADY_A_PRIMARY_PARTICIPANT" # Or some other suitable status
+
+        # Check current number of participants
+        current_participants = get_challenge_participants(challenge_id) # Uses a separate connection, or pass cursor
+        if len(current_participants) >= max_participants:
+            return "CHALLENGE_FULL"
+
+        # Check if user is already a participant (UNIQUE constraint should also catch this)
+        for p in current_participants:
+            if p['user_id'] == user_id:
+                return "ALREADY_JOINED"
+
+        current_time = int(time.time())
+        cursor.execute("""
+            INSERT INTO challenge_participants (challenge_id, user_id, joined_at)
+            VALUES (?, ?, ?)
+        """, (challenge_id, user_id, current_time))
+        conn.commit()
+        print(f"DB: User {user_id} added to challenge {challenge_id}.")
+        return "SUCCESS"
+    except sqlite3.IntegrityError: # Catches UNIQUE constraint violation
+        print(f"DB: User {user_id} likely already joined challenge {challenge_id} (IntegrityError).")
+        return "ALREADY_JOINED" # Should be caught by the explicit check above too
+    except sqlite3.Error as e:
+        print(f"DB ERROR adding participant to challenge {challenge_id}: {e}")
+        if conn: conn.rollback()
+        return "ERROR"
+    finally:
+        if conn:
+            conn.close()
+
+def create_challenge(server_id, challenger_user_id, admin_user_id):
+    """
+    Creates a new challenge in 'pending' status and adds challenger and admin as participants.
+    Returns challenge_id on success, None on failure (e.g., active challenge already exists).
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        conn.execute("PRAGMA foreign_keys = ON;")
+
+        # Check for existing active (pending or accepted) challenges in this server
+        cursor.execute("""
+            SELECT challenge_id FROM challenges 
+            WHERE server_id = ? AND status IN ('pending', 'accepted', 'in_progress')
+        """, (server_id,))
+        if cursor.fetchone():
+            print(f"DB: Active challenge already exists for server_id {server_id}.")
+            return None # Indicate active challenge exists
+
+        current_time = int(time.time())
+        cursor.execute("""
+            INSERT INTO challenges (server_id, challenger_user_id, admin_user_id, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'pending', ?, ?)
+        """, (server_id, challenger_user_id, admin_user_id, current_time, current_time))
+        challenge_id = cursor.lastrowid
+
+        if challenge_id:
+            # Add initial challenger and admin to participants
+            participants_to_add = [
+                (challenge_id, challenger_user_id, current_time),
+                (challenge_id, admin_user_id, current_time)
+            ]
+            cursor.executemany("""
+                INSERT INTO challenge_participants (challenge_id, user_id, joined_at)
+                VALUES (?, ?, ?)
+            """, participants_to_add)
+
+            conn.commit()
+            print(f"DB: Challenge {challenge_id} created for server {server_id} by user {challenger_user_id} against admin {admin_user_id}.")
+            return challenge_id
+        else:
+            conn.rollback()
+            return None
+    except sqlite3.Error as e:
+        print(f"DB ERROR creating challenge: {e}")
+        if conn: conn.rollback()
+        return None
+    finally:
+        if conn: conn.close()
+
+def get_active_challenge_for_server(server_id):
+    """
+    Retrieves details of an active ('pending', 'accepted', 'in_progress') challenge for a server.
+    Returns a dictionary with challenge details or None.
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM challenges 
+            WHERE server_id = ? AND status IN ('pending', 'accepted', 'in_progress')
+        """, (server_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as e:
+        print(f"DB ERROR getting active challenge for server {server_id}: {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
 def create_server(server_name, admin_user_id):
     conn = None
     try:
@@ -503,6 +689,20 @@ def initialize_database():
         """)
         print("Checked/Created 'messages' table.")
 
+        # Create challenge_participants table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS challenge_participants (
+            participant_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenge_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            joined_at INTEGER NOT NULL,
+            FOREIGN KEY(challenge_id) REFERENCES challenges(challenge_id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            UNIQUE(challenge_id, user_id) -- A user can only join a specific challenge once
+        );
+        """)
+        print("Checked/Created 'challenge_participants' table.")
+
         # Create challenges table
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS challenges (
@@ -510,6 +710,8 @@ def initialize_database():
             server_id INTEGER NOT NULL,
             challenger_user_id INTEGER NOT NULL,
             admin_user_id INTEGER NOT NULL,
+            extra_participant_1 INTEGER,
+            extra_participant_2 INTEGER,
             status TEXT NOT NULL CHECK(status IN ('pending', 'accepted', 'declined', 'in_progress', 'completed')), -- Example statuses
             winner_user_id INTEGER, -- Can be NULL
             created_at INTEGER NOT NULL,
@@ -517,6 +719,8 @@ def initialize_database():
             FOREIGN KEY (server_id) REFERENCES servers(server_id) ON DELETE CASCADE,
             FOREIGN KEY (challenger_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
             FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (extra_participant_1) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (extra_participant_2) REFERENCES users(user_id) ON DELETE CASCADE,
             FOREIGN KEY (winner_user_id) REFERENCES users(user_id) ON DELETE SET NULL -- If winner deleted, just remove winner ref
         );
         """)
