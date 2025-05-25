@@ -5,6 +5,8 @@ import secrets
 
 SUPER_USER_ID = 1
 SUPER_USER_USERNAME = "SYSTEM"
+CHALLENGE_USER_ID = 2
+CHALLENGE_USER_USERNAME = "CHALLENGE_NOTICE"
 DATABASE_FILE = 'chat_app.db'
 
 def generate_invite_code(length = 12):
@@ -732,20 +734,13 @@ def initialize_database():
             INSERT OR IGNORE INTO users (user_id, username, password, created_at) 
             VALUES (?, ?, ?, ?)
         """, (SUPER_USER_ID, SUPER_USER_USERNAME, dummy_password, current_time))
-        if cursor.rowcount > 0:
-            print(f"SYSTEM user '{SUPER_USER_USERNAME}' with ID {SUPER_USER_ID} created or ensured.")
-        else:
-            # Check if it exists with the correct username if ID was ignored due to PK conflict
-            cursor.execute("SELECT username FROM users WHERE user_id = ?", (SUPER_USER_ID,))
-            row = cursor.fetchone()
-            if row and row[0] == SUPER_USER_USERNAME:
-                print(f"SYSTEM user '{SUPER_USER_USERNAME}' (ID: {SUPER_USER_ID}) already exists.")
-            else:
-                print(f"WARNING: SYSTEM user with ID {SUPER_USER_ID} might exist with a different username, or insert failed for other reasons.")
-
-
+        cursor.execute("""
+            INSERT OR IGNORE INTO users (user_id, username, password, created_at) 
+            VALUES (?, ?, ?, ?)
+        """, (CHALLENGE_USER_ID, CHALLENGE_USER_USERNAME, dummy_password, current_time))
+        
         conn.commit()
-        print("Database initialized successfully (including SYSTEM user check).")
+        print("Database initialized successfully (including SYSTEM and CHALLENGE user check).")
 
 
     except sqlite3.Error as e:
