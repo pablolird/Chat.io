@@ -83,6 +83,11 @@ class Message(QWidget):
             self.text.setAlignment(Qt.AlignCenter)
             layout.addWidget(self.bubble)
             self.bubble.setStyleSheet("background-color: #c7c3b9; border-radius: 10px; padding: 10px; color: #242321;")
+        elif username=="SYSTEMCHALLENGE":
+            self.bubbleLayout.addWidget(self.text)
+            self.text.setAlignment(Qt.AlignCenter)
+            layout.addWidget(self.bubble)
+            self.bubble.setStyleSheet("background-color: yellow; border-radius: 10px; padding: 10px; color: #242321;")
         else:
             self.username = QLabel(username)
             self.username.setStyleSheet("padding: 0px; color: grey; font-size: 12px;")

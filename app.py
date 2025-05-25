@@ -107,7 +107,6 @@ class MainWindow(QMainWindow):
 
     def showUsers(self, list, serverID):
         chat = self.m_main_page.m_chatsContainer.m_chats[serverID]
-        
         # Clear previous members
         chat.m_members.clear()
         members_container = chat.m_groupDescription.m_membersBar.m_membersContainer
@@ -149,6 +148,7 @@ class MainWindow(QMainWindow):
 
             if username==self.m_username:
                 if admin_indicator=="user":
+                    chat.m_isAdmin = True
                     inputBar.m_challengeButton.clicked.connect(lambda event: self.sendChallengeRequest(serverID))
 
                     inputBar.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg")))
@@ -167,6 +167,9 @@ class MainWindow(QMainWindow):
         
     def sendChallengeRequest(self, serverID):
         self.sendRequest(f"/challenge_server_admin {serverID}")
+        # self.m_main_page.m_chatsContainer.m_chats[serverID].m_isAdmin
+        # chat = Chat()
+        # chat.
         # print("  /challenge_server_admin <server_id> - ")
         # print("  /join_challenge <server_id>")
         # print("  /accept_challenge <server_id> ")

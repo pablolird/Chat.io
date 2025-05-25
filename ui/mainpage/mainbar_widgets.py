@@ -159,6 +159,7 @@ class Chat(QWidget):
     def __init__(self, groupname, chatID):
         super().__init__()
 
+        self.m_isAdmin = False
         self.m_onlineCount = 0
         self.m_members = {}
         self.m_stack = QStackedWidget()
