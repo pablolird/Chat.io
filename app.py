@@ -130,6 +130,7 @@ class MainWindow(QMainWindow):
             online = member.get('is_online')
             admin_indicator = "admin" if member.get('is_admin') else "user"
             inputBar = chat.m_chatView.m_inputMessageBar
+            #s
             inputBar.m_challengeButton.setStyleSheet("""
                             QPushButton {
                                 border-radius: 10px;
