@@ -56,6 +56,8 @@ class MainWindow(QMainWindow):
         self.setGeometry(300, 90, 900, 600)
         self.setMinimumSize(900,500)
 
+        self.m_challengeClickable = True
+
         self.m_socket = sock
         self.m_receiving_thread = threading.Thread(target=self.receivingThread)
         self.m_receiving_thread.daemon = True
@@ -79,8 +81,6 @@ class MainWindow(QMainWindow):
         self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.m_send.clicked.connect(lambda: self.sendRequest("/create_server "+self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.m_groupName.text()))
 
         self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_send.clicked.connect(lambda: self.sendRequest("/join_server "+self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_groupName.text()))
-
-        #self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.m_send.clicked.connect(lambda: print("BUTTON CLICKED!\n"))
 
 
         self.serversReceived.connect(self.getMyServers)
@@ -107,7 +107,6 @@ class MainWindow(QMainWindow):
 
     def showUsers(self, list, serverID):
         chat = self.m_main_page.m_chatsContainer.m_chats[serverID]
-        
         # Clear previous members
         chat.m_members.clear()
         members_container = chat.m_groupDescription.m_membersBar.m_membersContainer
@@ -129,14 +128,52 @@ class MainWindow(QMainWindow):
             user_id = member.get('user_id')
             online = member.get('is_online')
             admin_indicator = "admin" if member.get('is_admin') else "user"
+            inputBar = chat.m_chatView.m_inputMessageBar
+            #s
+            inputBar.m_challengeButton.setStyleSheet("""
+                            QPushButton {
+                                border-radius: 10px;
+                                padding: 7px;
+                                border: 1px solid #1f252d;
+                            }
 
-            
+                            QPushButton:focus {
+                                    border: 1px solid grey;
+                                    outline: none;
+                                }
+
+                            QPushButton:hover {
+                                background-color: #2a313c;
+                            } """)
+
+            if username==self.m_username:
+                if admin_indicator=="user":
+                    chat.m_isAdmin = True
+                    inputBar.m_challengeButton.clicked.connect(lambda event: self.sendChallengeRequest(serverID))
+
+                    inputBar.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg")))
+                    
+                    inputBar.m_challengeButton.setCursor(Qt.PointingHandCursor)
+                else:
+                    inputBar.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel-grey.svg")))
+
+
+                
             chat.addMember(username, user_id, admin_indicator, online)
 
             if (online):
                 chat.m_onlineCount+=1
                 self.updateOnlineCount(chat.m_onlineCount, serverID)
         
+    def sendChallengeRequest(self, serverID):
+        self.sendRequest(f"/challenge_server_admin {serverID}")
+        # self.m_main_page.m_chatsContainer.m_chats[serverID].m_isAdmin
+        # chat = Chat()
+        # chat.
+        # print("  /challenge_server_admin <server_id> - ")
+        # print("  /join_challenge <server_id>")
+        # print("  /accept_challenge <server_id> ")
+
 
     def deleteHistory(self, server_id):
         container = self.m_main_page.m_chatsContainer.m_chats[server_id].m_chatView.m_chatArea.m_container_layout
@@ -208,7 +245,7 @@ class MainWindow(QMainWindow):
         # --- Rebuild from server list ---
         for server_item in servers:
             print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", Admin: {server_item.get('admin_username', 'N/A')}")
-            self.addGroup(server_item.get('name'), server_item.get('server_id'))
+            self.addGroup(server_item.get('name'), server_item.get('server_id'), server_item.get('invite_code'))
 
 
 
@@ -326,19 +363,13 @@ class MainWindow(QMainWindow):
                     if target_server_id_for_request is not None:
                         request_json = {"action": "GET_SERVER_MEMBERS", "payload": {"server_id": target_server_id_for_request}}
 
-                elif command == "/join_server":
-                    if len(args_list) == 1:
-                        try:
-                            server_id = int(args_list[0])
-                            request_json = {"action": "JOIN_SERVER", "payload": {"server_id": server_id}}
-                        except ValueError:
-                            warning = "CLIENT: Invalid server ID. Must be a number." 
-                            print(warning)
-                            self.m_main_page.m_chatsContainer.m_joinGroup.warn(warning, 0)
-                    else: 
-                        print("CLIENT: Usage: /join_server <server_id>")
+                elif command == "/join_server": # Renamed from /join_server
+                    if args_str: # Expecting a single argument: the invite code
+                        invite_code = args_str 
+                        request_json = {"action": "JOIN_SERVER", "payload": {"invite_code": invite_code}}
+                    else:
+                        print("CLIENT: Usage: /join_server <invite_code>")
                         self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Invalid server ID", 0)
-
 
                 elif command == "/leave_server":
                     if len(args_list) == 1:
@@ -355,7 +386,55 @@ class MainWindow(QMainWindow):
                             request_json = {"action": "SERVER_HISTORY", "payload": {"server_id": server_id}}
                         except ValueError: print("CLIENT: Invalid server ID. Must be a number.")
                     else: print("CLIENT: Usage: /server_history <server_id>")
+
+                elif command == "/accept_challenge":
+                    if len(args_list) == 1:
+                        try:
+                            server_id = int(args_list[0])
+                            request_json = {"action": "ACCEPT_CHALLENGE", "payload": {"server_id": server_id}} # Action "ACCEPT_CHALLENGE"
+                        except ValueError:
+                            print("CLIENT: Invalid server ID for /accept_challenge.")
+                    else:
+                        print("CLIENT: Usage: /accept_challenge <server_id> (to accept challenge in that server)")
+
+                elif command == "/join_challenge":
+                    if len(args_list) == 1:
+                        try:
+                            server_id = int(args_list[0])
+                            request_json = {"action": "JOIN_CHALLENGE", "payload": {"server_id": server_id}}
+                        except ValueError:
+                            print("CLIENT: Invalid server ID for /join_challenge.")
+                    else:
+                        print("CLIENT: Usage: /join_challenge <server_id> (to join the active challenge in that server)")
+
+                elif command == "/challenge_server_admin":
+                    if len(args_list) == 1:
+                        try:
+                            server_id = int(args_list[0])
+                            request_json = {"action": "CHALLENGE_ADMIN", "payload": {"server_id": server_id}}
+                        except ValueError:
+                            print("CLIENT: Invalid server ID for /challenge_server_admin.")
+                    else:
+                        print("CLIENT: Usage: /challenge_server_admin <server_id>")
                 
+                elif command == "/user_kick":
+                    if len(args_list) == 2: # Expects <server_id> <user_to_kick_id>
+                        try:
+                            server_id_to_act_on = int(args_list[0])
+                            user_id_to_kick_val = int(args_list[1])
+                            request_json = {
+                                "action": "KICK_USER",
+                                "payload": {
+                                    "server_id": server_id_to_act_on,
+                                    "user_to_kick_id": user_id_to_kick_val
+                                }
+                            }
+                        except ValueError:
+                            print("CLIENT: Invalid server_id or user_id. Both must be numbers.")
+                    else:
+                        print("CLIENT: Usage: /user_kick <server_id> <user_id_to_kick>")
+
+
                 elif command == "/message":
                     msg_parts = args_str.split(maxsplit=1)
                     if len(msg_parts) == 2:
@@ -373,13 +452,17 @@ class MainWindow(QMainWindow):
                     print("  /create_server <name>   - Create a new server.")
                     print("  /list_servers           - List all available servers.")
                     print("  /my_servers             - List servers you are a member of.")
-                    print("  /join_server <id>       - Join a server by its ID.")
-                    print("  /server_history <id>      - Set a server as your active context.")
+                    print("  /join_server <code>     - Join a server by its ID.")
+                    print("  /server_history <id>    - Set a server as your active context.")
                     print("  /leave_server <id>      - Leave a server by its ID.")
                     print("  /users_in_server [id]   - List users in a server (current if no id).")
                     print("  /message <id> <message> - Message to that specific server.")
                     print("  /close                  - Disconnect from the chat.")
                     print("  /help                   - Show this help message.")
+                    print("  /user_kick <server_id> <user_id> - ")
+                    print("  /challenge_server_admin <server_id> - ")
+                    print("  /join_challenge <server_id>")
+                    print("  /accept_challenge <server_id> ")
                 else:
                     print(f"CLIENT: Unknown command: {command}. Type /help for commands.")
                 
@@ -402,8 +485,7 @@ class MainWindow(QMainWindow):
             running = False
             send_json_client(sock, {"action": "DISCONNECT"}) 
         except Exception as e:
-            if running: 
-                print(f"CLIENT: Error in sending thread: {e}")
+            print(f"CLIENT: Error in sending thread: {e}")
 
 
     def receivingThread(self):
@@ -429,28 +511,59 @@ class MainWindow(QMainWindow):
                 status = response_data.get("status")
                 message = response_data.get("message", "")
                 data = response_data.get("data", {})
-
+                
                 if action_response: 
                     print(f"SERVER ({action_response} - {status}): {message}")
                     if status == "success":
-                        if action_response in ["LIST_ALL_SERVERS", "LIST_MY_SERVERS"]:
+                        if action_response == "LIST_ALL_SERVERS" or action_response == "LIST_MY_SERVERS":
                             servers = data.get("servers", [])
-                            self.serversReceived.emit(servers)
+                            self.serversReceived.emit(servers) # <----
+                            if servers:
+                                print("  Servers:")
+                                for server_item in servers:
+                                    admin_info = f"Admin: {server_item.get('admin_username', 'N/A')}"
+                                    invite_info = ""
+                                    if action_response == "LIST_MY_SERVERS": # Only show invite code for /my_servers
+                                        invite_info = f", Invite Code: {server_item.get('invite_code', 'N/A')}"
+                                    print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", {admin_info}{invite_info}")
+                            else:
+                                print("  No servers to display.")
+
                         elif action_response == "CREATE_SERVER":
-                            print(f"  New Server Info: ID={data.get('server_id')}, Name='{data.get('server_name')}', AdminID={data.get('admin_id')}")
-                            self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.warn.emit("Group created successfully!", 1)
-                            self.sendRequest("/my_servers")
+                            if status == "success":
+                                print(f"  Server Name: '{data.get('server_name')}', ID: {data.get('server_id')}")
+                                print(f"  Invite Code: {data.get('invite_code')}") # Display invite code
+                                self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.warn.emit("Group created successfully!", 1) # <----
+                                self.sendRequest("/my_servers") # <----
+                        
                         elif action_response == "JOIN_SERVER":
-                            self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Joined group successfully!", 1)
-                            self.sendRequest("/my_servers")
+                            self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Joined group successfully!", 1) # <----
+                            self.sendRequest("/my_servers") # <----
+                        
                         elif action_response == "SERVER_HISTORY": # Ensure this part is correct from previous step
                             server_name = data.get("server_name", "UnknownServer")
                             messages_history = data.get("messages", [])
                             print(f"  --- Message History for '{server_name}' (ID: {data.get('server_id')}) ---")
-                            if messages_history:
-                                self.messageHistory.emit(data.get('server_id'),messages_history)
+                            if messages_history: # <----
+                                self.messageHistory.emit(data.get('server_id'),messages_history) # <----
                             else:
                                 print("  No messages found for this server.")
+                    
+                        elif action_response == "JOIN_CHALLENGE":
+                            # The main message from the server ("You have successfully joined..." or error)
+                            # is already printed by the generic response handler part:
+                            # print(f"SERVER ({action_response} - {status}): {message}")
+                            # No additional data payload expected for this specific response from server for now.
+                            pass # Generic message already printed.
+
+                        elif action_response == "CHALLENGE_ADMIN":
+                            # The main message from the server ("Challenge initiated..." or error)
+                            # is already printed by the generic response handler.
+                            # If successful, 'data' might contain challenge_id.
+                            if status == "success" and data.get("challenge_id"):
+                                print(f"  Challenge ID {data.get('challenge_id')} created for server '{data.get('server_name')}'.")
+                            # Additional specific display logic for this response if needed.
+
                         elif action_response == "GET_SERVER_MEMBERS":
                             if status == "success":
                                 server_name_from_resp = data.get("server_name", f"ID {data.get('server_id')}")
@@ -458,16 +571,48 @@ class MainWindow(QMainWindow):
                                 print(f"  --- Users in Server: '{server_name_from_resp}' ---")
                                 if members:
                                     print(f"SERVER ID IS: {data.get('server_id')}")
-                                    self.onlineUsers.emit(members, data.get('server_id'))
+                                    self.onlineUsers.emit(members, data.get('server_id')) # <----
                                     for member in members:
                                         online_status = "Online" if member.get('is_online') else "Offline"
                                         admin_indicator = "(Admin)" if member.get('is_admin') else ""
                                         print(f"    - {member.get('username', 'Unknown')} (ID: {member.get('user_id')}) - {online_status} {admin_indicator}".strip())
                                 else:
                                     print("  No members found in this server.")
+                    
                     elif status=="error" and action_response=="JOIN_SERVER":
-                        self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit(message,0)
+                        self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit(message,0) # <----
             
+                elif response_data.get("type") == "MINIGAME_INVITE": # <<< NEW BROADCAST TYPE HANDLER
+                            payload = response_data.get("payload", {})
+                            server_name = payload.get('server_name', 'Unknown Server')
+                            minigame_ip = payload.get('minigame_ip')
+                            minigame_port = payload.get('minigame_port')
+                            all_participants = payload.get('all_participants', [])
+                            
+                            print(f"\n--- MINIGAME INVITE for Server '{server_name}'! ---")
+                            print(f"  Challenge ID: {payload.get('challenge_id')}")
+                            print(f"  Connect to Minigame Server at: IP={minigame_ip}, Port={minigame_port}")
+                            print(f"  Game Type: {payload.get('game_type', 'N/A')}")
+                            print(f"  Participants: {', '.join(all_participants)}")
+                            print(f"  --- If you are a participant, you would now launch your minigame client! ---")
+                            # Example: os.system(f"minigame_client.exe {minigame_ip} {minigame_port}") # This is just a placeholder
+                            # For now, just print the info.
+
+                elif response_data.get("type") == "YOU_WERE_KICKED": # <<< NEW BROADCAST TYPE HANDLER
+                    payload = response_data.get("payload", {})
+                    server_name = payload.get('server_name', 'a server')
+                    kicked_by = payload.get('kicked_by_username', 'the admin')
+
+                    print(f"ALERT: You have been kicked from server '{server_name}' by Admin {kicked_by}.")
+
+                    # Optional: If client was tracking an active server context, clear it
+                    # global client_active_server_id, current_server_context_name
+                    # if client_active_server_id == payload.get('server_id'):
+                    #     print(f"CLIENT: You are no longer active in '{server_name}'.")
+                    #     client_active_server_id = None
+                    #     current_server_context_name = "Global" # Or some other default
+
+
                 elif response_data.get("type") == "CHAT_MESSAGE":
                     payload = response_data.get("payload", {})
                     sender = payload.get("sender_username", "Unknown")
@@ -477,22 +622,23 @@ class MainWindow(QMainWindow):
                     ts = format_timestamp(payload.get('timestamp'))
                     
                     print(f"({message_server_id}) [{ts}] {sender}: {msg_text}")
-                    self.messageReceived.emit([message_server_id, ts, sender, msg_text])
+                    
+                    self.messageReceived.emit([message_server_id, ts, sender, msg_text]) # <----
                     if (sender=="SYSTEM"):
-                        self.sendRequest(f"/users_in_server {message_server_id}")
-                        self.onlineUsers.emit(members, message_server_id)
+                        self.sendRequest(f"/users_in_server {message_server_id}") # <----
+                        self.onlineUsers.emit(members, message_server_id) # <----
                 elif response_data.get("type") == "USER_JOINED": 
                     payload = response_data.get("payload", {})
                     # This is a global "joined the system" message, like online status.
                     # Server-specific need more context
                     print(f"SERVER: {payload.get('username')} joined the chat system.")
-                    self.modifyUserStatus.emit(payload.get('username'), 1)
+                    self.modifyUserStatus.emit(payload.get('username'), 1) # <----
 
                 elif response_data.get("type") == "USER_LEFT": 
                     payload = response_data.get("payload", {})
                     # This is a global "left the system" message, like offline status.
                     print(f"SERVER: {payload.get('username')} (ID: {payload.get('user_id')}) left the chat system.")
-                    self.modifyUserStatus.emit(payload.get('username'), 0)
+                    self.modifyUserStatus.emit(payload.get('username'), 0) # <----
                 
                 elif status == "error" and not action_response:
                     print(f"SERVER ERROR: {message}")
@@ -500,9 +646,6 @@ class MainWindow(QMainWindow):
                 else: 
                     if not action_response: 
                         print(f"SERVER MSG: {message or response_data}")
-
-                # sys.stdout.write(get_prompt())
-                # sys.stdout.flush()
 
             except Exception as e:
                 if running: 
@@ -512,7 +655,7 @@ class MainWindow(QMainWindow):
         print("CLIENT: Receiving thread stopped.")
 
 
-    def addGroup(self, name, chatID):
+    def addGroup(self, name, chatID, inviteCode):
         group = Group(name, chatID)
         group.clicked.connect(lambda: self.switchChat(group))
         self.m_main_page.m_mainBar.m_groupBar.m_groups.append(group)
@@ -529,6 +672,8 @@ class MainWindow(QMainWindow):
         self.m_main_page.serverIDtoIndex[chatID] = chatIndex
         self.sendRequest(f"/server_history {chatID}")
         self.sendRequest(f"/users_in_server {chatID}")
+
+        new_chat.m_groupDescription.m_membersBar.m_groupInviteContainer.m_groupInvitationID.setText(inviteCode)
     
 
     def leaveGroup(self, groupID):
