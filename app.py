@@ -148,7 +148,6 @@ class MainWindow(QMainWindow):
 
             if username==self.m_username:
                 if admin_indicator=="user":
-                    chat.m_isAdmin = True
                     inputBar.m_challengeButton.clicked.connect(lambda event: self.sendChallengeRequest(serverID))
 
                     inputBar.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg")))
@@ -244,8 +243,9 @@ class MainWindow(QMainWindow):
 
         # --- Rebuild from server list ---
         for server_item in servers:
-            print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", Admin: {server_item.get('admin_username', 'N/A')}")
-            self.addGroup(server_item.get('name'), server_item.get('server_id'), server_item.get('invite_code'))
+            isAdmin = self.m_username == server_item.get('admin_username', 'N/A')
+            print("SOY ADMIN") if isAdmin else print ("NOSOYADMIN")
+            self.addGroup(server_item.get('name'), server_item.get('server_id'), server_item.get('invite_code'), isAdmin)
 
 
 
@@ -270,8 +270,11 @@ class MainWindow(QMainWindow):
         if server_id not in self.m_main_page.m_chatsContainer.m_chats:
             print(f"CLIENT: Received message for unknown server ID {server_id}. Ignoring for now.")
             return  # Or queue it for later if needed
+        
+        is_admin = self.m_main_page.m_chatsContainer.m_chats[server_id].m_isAdmin
 
-        self.m_main_page.m_chatsContainer.m_chats[server_id].m_chatView.m_chatArea.add_message(list[2],text, timestamp, isSender)
+        
+        self.m_main_page.m_chatsContainer.m_chats[server_id].m_chatView.m_chatArea.add_message(list[2],text, timestamp, is_admin, isSender)
 
 
     def switch_layout(self):
@@ -655,7 +658,7 @@ class MainWindow(QMainWindow):
         print("CLIENT: Receiving thread stopped.")
 
 
-    def addGroup(self, name, chatID, inviteCode):
+    def addGroup(self, name, chatID, inviteCode, isAdmin):
         group = Group(name, chatID)
         group.clicked.connect(lambda: self.switchChat(group))
         self.m_main_page.m_mainBar.m_groupBar.m_groups.append(group)
@@ -663,7 +666,7 @@ class MainWindow(QMainWindow):
         groupIndex = self.m_main_page.m_mainBar.m_groupBar.m_container_layout.indexOf(group)
         self.m_main_page.m_serverIDtoGroupBarIndex[chatID] = groupIndex
 
-        new_chat = Chat(name, chatID)
+        new_chat = Chat(name, chatID, isAdmin)
         self.m_main_page.m_chatsContainer.m_chats[chatID] = new_chat
         new_chat.m_chatView.m_inputMessageBar.m_inputBar.returnPressed.connect(lambda: self.sendMessage(new_chat.m_chatID))
         self.m_main_page.m_chatsContainer.m_stack.addWidget(new_chat)
