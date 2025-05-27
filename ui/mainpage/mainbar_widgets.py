@@ -156,9 +156,10 @@ class addGroupsBar(QWidget):
 
 
 class Chat(QWidget):
-    def __init__(self, groupname, chatID):
+    def __init__(self, groupname, chatID, isAdmin):
         super().__init__()
 
+        self.m_isAdmin = isAdmin
         self.m_onlineCount = 0
         self.m_members = {}
         self.m_stack = QStackedWidget()

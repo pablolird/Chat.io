@@ -688,9 +688,7 @@ class ClientThread(threading.Thread):
                                     broadcast_challenge_message_to_server(
                                         target_server_id, 
                                         server_details['name'],
-                                        (f"{self.username} has challenged Admin {admin_username_to_challenge}! "
-                                         f"Admin can type /accept_challenge {target_server_id}. " # Send server_id for context
-                                         f"Others can type /join_challenge {target_server_id}."), # Send server_id for context
+                                        (f"{self.username} has challenged Admin {admin_username_to_challenge}! "),
                                         response,
                                         self.client_socket
                                     )

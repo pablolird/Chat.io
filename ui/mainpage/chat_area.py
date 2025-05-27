@@ -53,7 +53,7 @@ class chatInput(QWidget):
 
 
 class Message(QWidget):
-    def __init__(self, username, text: str, timestamp: str, is_sender: bool = False):
+    def __init__(self, username, text: str, timestamp: str, is_admin, is_sender: bool = False):
         super().__init__()
 
         layout = QHBoxLayout()
@@ -64,12 +64,27 @@ class Message(QWidget):
 
         self.bubble = QWidget()
         self.bubbleLayout = QVBoxLayout()
-        self.bubble.setLayout(self.bubbleLayout)
-        
+        self.bubble.setLayout(self.bubbleLayout)        
+
         self.text = QLabel(text)
         self.text.setStyleSheet("padding: 0px;")
         self.text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.text.setCursor(Qt.CursorShape.IBeamCursor)
+
+        self.m_acceptButton = QPushButton("Accept Challenge")
+        self.m_acceptButton.setStyleSheet("""
+                                QPushButton {
+                                border: 1px solid #6b5400; background-color: #ffc800;
+                                }
+
+                            QPushButton:focus {
+                                border: 1px solid grey;
+                                outline: none;
+                            }
+
+                            QPushButton:hover {
+                                background-color: #d9b11e;
+                            }""")
 
         # Optional: Align left/right depending on sender
         if is_sender:
@@ -83,6 +98,15 @@ class Message(QWidget):
             self.text.setAlignment(Qt.AlignCenter)
             layout.addWidget(self.bubble)
             self.bubble.setStyleSheet("background-color: #c7c3b9; border-radius: 10px; padding: 10px; color: #242321;")
+        elif username=="CHALLENGE_NOTICE":
+            self.bubbleLayout.addWidget(self.text)
+            print("HOLA")
+            if is_admin:
+                print("HOLA SOY ADMIN")
+                self.bubbleLayout.addWidget(self.m_acceptButton)
+            self.text.setAlignment(Qt.AlignCenter)
+            layout.addWidget(self.bubble)
+            self.bubble.setStyleSheet("background-color: yellow; border-radius: 10px; padding: 10px; color: #242321;")
         else:
             self.username = QLabel(username)
             self.username.setStyleSheet("padding: 0px; color: grey; font-size: 12px;")
@@ -137,11 +161,11 @@ class ChatArea(QWidget):
 
         self.setLayout(m_layout)
 
-    def add_message(self,username, text, timestamp, is_sender):
+    def add_message(self,username, text, timestamp, is_admin, is_sender):
         now = datetime.now()
         current_time = timestamp
 
-        message = Message(username,text, current_time, is_sender)
+        message = Message(username,text, current_time, is_admin, is_sender)
         # Set message max width relative to ChatArea
         max_width = int(self.width() * 0.6)
         message.bubble.setMaximumWidth(max_width)
