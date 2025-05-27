@@ -877,7 +877,7 @@ if __name__ == "__main__":
         print(f"Invalid port: {e}")
         sys.exit(1)
 
-    server_ip = '127.0.0.1'
+    server_ip = '172.20.10.2'
     s = socket.socket()
     s.settimeout(10.0)
 
