@@ -6,8 +6,10 @@ import os
 import sys
 import database # Your database module
 import json
+import pymongo
 import time
 import struct
+import datetime
 
 MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
@@ -18,6 +20,42 @@ CHALLENGE_USER_USERNAME = "CHALLENGE_NOTICE"
 MAX_CHALLENGE_PARTICIPANTS = 4
 DUMMY_MINIGAME_IP = "127.0.0.1"
 DUMMY_MINIGAME_PORT = 9999 # Example port
+
+try:
+    mongo_client = pymongo.MongoClient("mongodb://localhost:27017/") # Default local MongoDB URI
+    
+    log_db = mongo_client["chat_app_logs"] # Select or create a database named 'chat_app_logs'
+    message_logs_collection = log_db["message_traffic"] # Select or create a collection
+    
+    # Test connection 
+    mongo_client.admin.command('ping') 
+    print("MongoDB connection successful. Logging is active.")
+    mongodb_logging_active = True
+except pymongo.errors.ConnectionFailure as e:
+    print(f"MongoDB connection failed: {e}. Logging will be disabled.")
+    mongodb_logging_active = False
+except Exception as e_mongo_init:
+    print(f"An error occurred during MongoDB initialization: {e_mongo_init}. Logging will be disabled.")
+    mongodb_logging_active = False
+
+def log_to_mongodb(direction, client_addr, user_details, json_data):
+    """Logs a JSON message to MongoDB."""
+    if not mongodb_logging_active:
+        return # Don't attempt to log if MongoDB isn't available
+
+    try:
+        log_entry = {
+            "timestamp_utc": datetime.datetime.now(datetime.timezone.utc), # Store as UTC
+            "direction": direction,  # "SENT_TO_CLIENT" or "RECEIVED_FROM_CLIENT"
+            "client_ip": client_addr[0] if client_addr else None,
+            "client_port": client_addr[1] if client_addr else None,
+            "user_id": user_details.get("user_id") if user_details else None,
+            "username": user_details.get("username") if user_details else None,
+            "message_json": json_data # Store the actual JSON object (or string if preferred)
+        }
+        message_logs_collection.insert_one(log_entry)
+    except Exception as e:
+        print(f"Error logging to MongoDB: {e}")
 
 def receive_all(sock, num_bytes_to_receive):
     received_data = bytearray()
@@ -41,8 +79,10 @@ def receive_all(sock, num_bytes_to_receive):
         received_data.extend(packet)
     return received_data
 
-def send_json(sock, data_dict):
+def send_json(sock, data_dict, client_addr_for_log = None, user_details_for_log = None):
     try:
+        if mongodb_logging_active: # Check before calling log function
+            log_to_mongodb("SENT_TO_CLIENT", client_addr_for_log, user_details_for_log, data_dict)
         json_bytes = json.dumps(data_dict).encode('utf-8')
         len_prefix = struct.pack(MSG_LENGTH_PREFIX_FORMAT, len(json_bytes))
         sock.sendall(len_prefix) 
@@ -281,6 +321,10 @@ class ClientThread(threading.Thread):
                     print(f"DEBUG: [{thread_name}] User {self.username} (ID: {self.user_id}) disconnected or bad data.")
                     self.running = False
                     break
+
+                if mongodb_logging_active: # Check before calling log function
+                    current_user_details = {"user_id": self.user_id, "username": self.username}
+                    log_to_mongodb("RECEIVED_FROM_CLIENT", self.addr, current_user_details, request_data)
                 
                 print(f"DEBUG: [{thread_name}] Received from User {self.username}: {request_data}")
 
@@ -808,6 +852,10 @@ def handle_client(client_socket, addr):
             if request_data is None: # Connection closed or error
                 print(f"DEBUG: [{thread_name}] Client {addr} disconnected or bad data during auth.")
                 break # Exit auth loop, connection will be closed in finally
+
+            if mongodb_logging_active: # Check before calling log function
+                # For unauthenticated phase, user_details might be None or just basic
+                log_to_mongodb("RECEIVED_FROM_CLIENT", addr, None, request_data) 
 
             print(f"DEBUG: [{thread_name}] Received from {addr} for auth: {request_data}")
             
