@@ -583,7 +583,27 @@ class ClientThread(threading.Thread):
 
                                         # <<< START GAME SERVER SUBPROCESS >>>
                                         try:
-                                            game_command = [GODOT_EXECUTABLE_PATH, "--server", "--headless", f"--ip={DUMMY_MINIGAME_IP}"]
+                                            # <<< SEND INVITES >>>
+                                            minigame_info_payload = {
+                                                "challenge_id": challenge_id,
+                                                "server_id": target_server_id,
+                                                "server_name": server_name,
+                                                "minigame_ip": DUMMY_MINIGAME_IP,
+                                                "minigame_port": DUMMY_MINIGAME_PORT,
+                                                "game_type": "DefaultMinigame"
+                                            }
+                                            participants = database.get_challenge_participants(challenge_id)
+                                            participant_usernames = [p['username'] for p in participants]
+                                            minigame_info_payload["all_participants"] = participant_usernames
+                                            number_of_usernames = len(participant_usernames)
+                                            print(number_of_usernames)
+                                            if number_of_usernames == 4:
+                                                player_number_flag = "--four"
+                                            elif number_of_usernames == 3:
+                                                player_number_flag = "--three"
+                                            else:
+                                                player_number_flag = ""
+                                            game_command = [GODOT_EXECUTABLE_PATH, "--server", "--headless", f"--ip={DUMMY_MINIGAME_IP}", player_number_flag]
                                             print(f"DEBUG: Current Working Directory is: {os.getcwd()}") 
                                             print(f"INFO: [{thread_name}] Starting game server: {' '.join(game_command)}")
                                             game_proc = subprocess.Popen(
@@ -610,19 +630,6 @@ class ClientThread(threading.Thread):
 
                                             # Give game server a moment to start (CRUDE!)
                                             time.sleep(2.0)
-
-                                            # <<< SEND INVITES >>>
-                                            minigame_info_payload = {
-                                                "challenge_id": challenge_id,
-                                                "server_id": target_server_id,
-                                                "server_name": server_name,
-                                                "minigame_ip": DUMMY_MINIGAME_IP,
-                                                "minigame_port": DUMMY_MINIGAME_PORT,
-                                                "game_type": "DefaultMinigame"
-                                            }
-                                            participants = database.get_challenge_participants(challenge_id)
-                                            participant_usernames = [p['username'] for p in participants]
-                                            minigame_info_payload["all_participants"] = participant_usernames
 
                                             with lock:
                                                 for participant_data in participants:
@@ -695,7 +702,7 @@ class ClientThread(threading.Thread):
                                     challenge_id = active_challenge['challenge_id'] # Safe now
 
                                     # Get admin username for the notification message
-                                    admin_user_for_challenge = database.get_user(active_challenge['admin_user_id'])
+                                    admin_user_for_challenge = database.get_user_by_name(active_challenge['admin_user_id'])
                                     admin_username_for_notification = "the Admin"
                                     if admin_user_for_challenge and admin_user_for_challenge.get('username'):
                                         admin_username_for_notification = admin_user_for_challenge['username']
@@ -711,7 +718,7 @@ class ClientThread(threading.Thread):
                                         broadcast_system_message_to_server(
                                             target_server_id,
                                             server_name,
-                                            f"{self.username} has joined the challenge against Admin {admin_username_for_notification}!",
+                                            f"{self.username} has joined the challenge against the Admin!",
                                             response,
                                             self.client_socket
                                         )
