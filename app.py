@@ -9,7 +9,9 @@ import struct
 import threading
 import os
 import sys
+import platform
 import socket
+import subprocess # <<< ADDED
 from datetime import datetime
 from PySide6.QtCore import (Signal)
 from PySide6.QtWidgets import (
@@ -23,10 +25,34 @@ from PySide6.QtGui import (
     QFontDatabase,
     Qt
 )
-# ... (MSG_LENGTH_PREFIX_FORMAT and users dictionary) ...
+
+def detect_os():
+    """Detects the operating system and returns its name."""
+    return platform.system()
+
+def is_windows():
+    """Checks if the operating system is Windows."""
+    return os.name == 'nt'
+
+def get_godot_executable_path():
+    """Returns the absolute path to the Godot executable based on the OS."""
+    cwd = os.getcwd()
+    godot_dir = os.path.join(cwd, "GodotGame")
+    
+    if is_windows():
+        executable_name = "FinalWindows.exe"
+    else:
+        executable_name = "FinalLinux.x86_64"
+    
+    executable_path = os.path.join(godot_dir, executable_name)
+    return executable_path
+
+# Network-related constants
 MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
 
+# Get the correct path
+GODOT_EXECUTABLE_PATH = get_godot_executable_path()
 
 users = { "juan" : "123",
          "lucas" : "234"}
@@ -152,6 +178,7 @@ class MainWindow(QMainWindow):
                             } """)
 
             if username==self.m_username:
+                chat.m_isAdmin = member.get('is_admin')
                 if admin_indicator=="user":
                     inputBar.m_challengeButton.clicked.connect(lambda event, sid=serverID: self.sendChallengeRequest(sid)) # <<< Pass serverID
 
@@ -175,6 +202,7 @@ class MainWindow(QMainWindow):
 
     # <<< Add this method >>>
     def acceptChallengeRequest(self, serverID):
+        print("HELLO")
         print(f"CLIENT: Attempting to accept challenge for server ID: {serverID}")
         self.sendRequest(f"/accept_challenge {serverID}")
 
@@ -259,7 +287,6 @@ class MainWindow(QMainWindow):
         # --- Rebuild from server list ---
         for server_item in servers:
             isAdmin = self.m_username == server_item.get('admin_username', 'N/A')
-            print("SOY ADMIN") if isAdmin else print ("NOSOYADMIN")
             self.addGroup(server_item.get('name'), server_item.get('server_id'), server_item.get('invite_code'), isAdmin)
 
 
@@ -622,8 +649,36 @@ class MainWindow(QMainWindow):
                             print(f"  Game Type: {payload.get('game_type', 'N/A')}")
                             print(f"  Participants: {', '.join(all_participants)}")
                             print(f"  --- If you are a participant, you would now launch your minigame client! ---")
-                            # Example: os.system(f"minigame_client.exe {minigame_ip} {minigame_port}") # This is just a placeholder
-                            # For now, just print the info.
+
+                            # Check if I am a participant
+                            my_username = self.m_username
+                            if my_username and my_username in all_participants:
+                                print(f"  --- You are {my_username}! Launching your minigame client... ---")
+                                try:
+                                    game_command = [
+                                        GODOT_EXECUTABLE_PATH,
+                                        "--player",
+                                        f"--ip={minigame_ip}",
+                                        f"--name={my_username}"
+                                    ]
+                                    print(f"CLIENT: Launching game: {' '.join(game_command)}")
+                                    # Use Popen - this will run in the background.
+                                    subprocess.Popen(
+                                        game_command,
+                                        cwd=os.path.dirname(GODOT_EXECUTABLE_PATH) or '.'
+                                    )
+                                except FileNotFoundError:
+                                    print(f"ERROR: Godot executable not found at {GODOT_EXECUTABLE_PATH}. Cannot join game.")
+                                except Exception as e_game_launch:
+                                    print(f"ERROR: Failed to launch game client: {e_game_launch}")
+                            else:
+                                print(f"  --- You are not a participant ({my_username}). ---")
+
+                            # Reprint prompt after printing invite
+                            #sys.stdout.write(get_prompt())
+                            #sys.stdout.flush()
+                            #continue # Skip default prompt print at end
+
 
                 elif response_data.get("type") == "YOU_WERE_KICKED": # <<< NEW BROADCAST TYPE HANDLER
                     payload = response_data.get("payload", {})

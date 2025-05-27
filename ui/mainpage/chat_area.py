@@ -79,7 +79,7 @@ class Message(QWidget):
         self.m_acceptButton.setCursor(Qt.PointingHandCursor)
         self.m_acceptButton.setStyleSheet("""
                                 QPushButton {
-                                border: 1px solid #6b5400; background-color: #ffc800; padding: 5px; color: #242321;
+                                border: 1px solid #6b5400; background-color: #ffc800; padding: 5px; color: white;
                                 }
 
                             QPushButton:focus {
@@ -95,10 +95,13 @@ class Message(QWidget):
         self.m_joinButton.setCursor(Qt.PointingHandCursor)
         self.m_joinButton.setStyleSheet("""
                                 QPushButton {
-                                border: 1px solid #0066cc; background-color: #3399ff; padding: 5px; color: white;
+                                border: 1px solid #6b5400; background-color: #ffc800; padding: 5px; color: white;
                                 }
-                            QPushButton:hover { background-color: #007bff; }
-                            """)
+                            QPushButton:hover { background-color: #d9b11e; }
+                            QPushButton:focus {
+                                border: 1px solid grey;
+                                outline: none;
+                            }""")
 
 
         # Optional: Align left/right depending on sender

@@ -11,7 +11,7 @@ import subprocess # <<< ADDED
 
 MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
-GODOT_EXECUTABLE_PATH = "/home/vawms/Workspace/DS/Chat-App---Final-Project/GodotGame/finalv2.x86_64" # <<< ADDED: Path to your game executable
+GODOT_EXECUTABLE_PATH = "/home/cxn/Documents/code/python/Database Systems/chat app/Chat-App---Final-Project/GodotGame/FinalLinux.x86_64" # <<< ADDED: Path to your game executable
 
 def send_json_client(sock, data_dict):
     try:
