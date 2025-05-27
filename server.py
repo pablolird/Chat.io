@@ -9,6 +9,7 @@ import json
 import pymongo
 import time
 import struct
+import platform
 import datetime
 import subprocess # <<< ADDED
 import select     # <<< ADDED
@@ -24,9 +25,34 @@ CHALLENGE_USER_USERNAME = "CHALLENGE_NOTICE"
 MAX_CHALLENGE_PARTICIPANTS = 4
 DUMMY_MINIGAME_IP = "127.0.0.1"
 DUMMY_MINIGAME_PORT = 9999 # Example port
-GODOT_EXECUTABLE_PATH = "/home/vawms/Workspace/DS/Chat-App---Final-Project/GodotGame/finalv2.x86_64" # <<< ADDED: Path to your game executable
 game_processes = {} # <<< ADDED: Tracks running games {challenge_id: process_object}
 game_monitor_threads = {} # <<< ADDED: Tracks monitor threads {challenge_id: thread_object}
+
+
+def detect_os():
+    """Detects the operating system and returns its name."""
+    return platform.system()
+
+def is_windows():
+    """Checks if the operating system is Windows."""
+    return os.name == 'nt'
+
+def get_godot_executable_path():
+    """Returns the absolute path to the Godot executable based on the OS."""
+    cwd = os.getcwd()
+    godot_dir = os.path.join(cwd, "GodotGame")
+    
+    if is_windows():
+        executable_name = "FinalWindows.exe"
+    else:
+        executable_name = "FinalLinux.x86_64"
+    
+    executable_path = os.path.join(godot_dir, executable_name)
+    return executable_path
+
+# Get the correct path
+GODOT_EXECUTABLE_PATH = get_godot_executable_path()
+
 
 
 try:
@@ -311,6 +337,7 @@ def monitor_game_process(challenge_id, process, server_id, server_name):
     print(f"INFO: [{thread_name}] Starting monitor for Challenge ID: {challenge_id}, PID: {process.pid}")
 
     winner_username = None
+    buffer = b'' # Use a buffer to store partial lines
 
     try:
         # Set stdout to non-blocking (Linux specific)
@@ -320,29 +347,66 @@ def monitor_game_process(challenge_id, process, server_id, server_name):
 
         while process.poll() is None: # While process is running
             ready_to_read, _, _ = select.select([process.stdout], [], [], 1.0) # 1 sec timeout
+
             if ready_to_read:
+                print("soy gay")
                 try:
-                    line_bytes = process.stdout.readline()
-                    while line_bytes: # Read all available lines
+                    # Read available data (up to 4096 bytes), not just one line
+                    chunk = process.stdout.read(4096)
+
+                    if chunk is None:
+                        # This is the condition we want to handle, though it's weird.
+                        print(f"WARNING: [{thread_name}] process.stdout.read() returned None. Assuming EOF.")
+                        break
+                    if not chunk:
+                        # This is the standard way to detect EOF.
+                        print(f"INFO: [{thread_name}] process.stdout.read() returned b''. Assuming EOF.")
+                        break
+
+                    buffer += chunk # Add read data to our buffer
+
+                    # Process all full lines currently in the buffer
+                    while b'\n' in buffer:
+                        line_bytes, buffer = buffer.split(b'\n', 1)
                         line = line_bytes.decode('utf-8', errors='ignore').strip()
-                        print(f"GAME_LOG (Challenge {challenge_id}): {line}")
-                        if line.startswith("WINNER:"):
-                            winner_username = line.split(":", 1)[1].strip()
-                            print(f"INFO: [{thread_name}] Detected winner for Challenge {challenge_id}: {winner_username}")
-                            # Keep reading but we found our winner
-                        line_bytes = process.stdout.readline()
+                        if line: # Process only non-empty lines
+                            print(f"GAME_LOG (Challenge {challenge_id}): {line}")
+                            if line.startswith("WINNER:"):
+                                winner_username = line.split(":", 1)[1].strip()
+                                print(f"INFO: [{thread_name}] Detected winner for Challenge {challenge_id}: {winner_username}")
+                                # Optional: you could break here if you don't need further output
+
                 except BlockingIOError:
-                     # No more data right now, wait a bit
-                     pass
-            time.sleep(0.5) # Avoid busy-waiting
+                    # No data was *actually* available despite select (rare, but possible)
+                    # or read() finished all available data. Just loop and wait for select again.
+                    pass
+                except Exception as e:
+                    # Catch other potential reading errors
+                    print(f"ERROR: [{thread_name}] Inner loop error reading stdout for Challenge {challenge_id}: {e}")
+                    break # Exit on other errors too
+
+            # Small sleep even if select times out, avoids 100% CPU if select behaves strangely.
+            time.sleep(0.1)
 
     except Exception as e:
-        print(f"ERROR: [{thread_name}] Error reading stdout for Challenge {challenge_id}: {e}")
+        print(f"ERROR: [{thread_name}] Outer loop error reading stdout for Challenge {challenge_id}: {e}")
 
-    # Process finished or error occurred
+    # Process any remaining data in the buffer after the process finishes
+    if buffer:
+        lines = buffer.split(b'\n')
+        for line_bytes in lines:
+            line = line_bytes.decode('utf-8', errors='ignore').strip()
+            if line:
+                 print(f"GAME_LOG (Challenge {challenge_id}, Final): {line}")
+                 if line.startswith("WINNER:") and not winner_username:
+                     winner_username = line.split(":", 1)[1].strip()
+                     print(f"INFO: [{thread_name}] Detected winner (final) for Challenge {challenge_id}: {winner_username}")
+
+    # --- Rest of the function (Process finished or error occurred) ---
     return_code = process.wait() # Ensure process is finished and get return code
     print(f"INFO: [{thread_name}] Game process for Challenge {challenge_id} finished. PID: {process.pid}, Code: {return_code}")
 
+    # (Your existing winner processing logic here...)
     if winner_username:
         winner_user_id = database.get_user_by_name(winner_username)
         if winner_user_id:
@@ -379,7 +443,7 @@ def monitor_game_process(challenge_id, process, server_id, server_name):
         )
 
     # Cleanup
-    with lock:
+    with lock: # Make sure 'lock' is accessible or passed if needed
         if challenge_id in game_processes:
             del game_processes[challenge_id]
         if challenge_id in game_monitor_threads:

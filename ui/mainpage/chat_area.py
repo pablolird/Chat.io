@@ -13,11 +13,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import (
     QSize,
     Qt,
-    QTimer
-)
+    QTimer,
+    Signal)
 import os
 
 class chatInput(QWidget):
+    # ... (existing code) ...
     def __init__(self):
         super().__init__()
 
@@ -29,11 +30,11 @@ class chatInput(QWidget):
         self.setLayout(self.m_layout)
 
         self.m_inputBar = QLineEdit()
-        
+
         self.m_inputBar.setPlaceholderText("Write a message...")
-        
-        self.m_inputBar.setStyleSheet("""QLineEdit { 
-                                            padding: 15px; 
+
+        self.m_inputBar.setStyleSheet("""QLineEdit {
+                                            padding: 15px;
                                             background-color: #222831;
                                             border-radius: 10px;
                                             outline: none;
@@ -53,6 +54,9 @@ class chatInput(QWidget):
 
 
 class Message(QWidget):
+    acceptChallengeClicked = Signal()  # <<< Add accept signal
+    joinChallengeClicked = Signal()    # <<< Add join signal
+
     def __init__(self, username, text: str, timestamp: str, is_admin, is_sender: bool = False):
         super().__init__()
 
@@ -64,7 +68,7 @@ class Message(QWidget):
 
         self.bubble = QWidget()
         self.bubbleLayout = QVBoxLayout()
-        self.bubble.setLayout(self.bubbleLayout)        
+        self.bubble.setLayout(self.bubbleLayout)
 
         self.text = QLabel(text)
         self.text.setStyleSheet("padding: 0px;")
@@ -72,9 +76,10 @@ class Message(QWidget):
         self.text.setCursor(Qt.CursorShape.IBeamCursor)
 
         self.m_acceptButton = QPushButton("Accept Challenge")
+        self.m_acceptButton.setCursor(Qt.PointingHandCursor)
         self.m_acceptButton.setStyleSheet("""
                                 QPushButton {
-                                border: 1px solid #6b5400; background-color: #ffc800;
+                                border: 1px solid #6b5400; background-color: #ffc800; padding: 5px; color: white;
                                 }
 
                             QPushButton:focus {
@@ -85,6 +90,19 @@ class Message(QWidget):
                             QPushButton:hover {
                                 background-color: #d9b11e;
                             }""")
+
+        self.m_joinButton = QPushButton("Join Challenge") # <<< Add Join button
+        self.m_joinButton.setCursor(Qt.PointingHandCursor)
+        self.m_joinButton.setStyleSheet("""
+                                QPushButton {
+                                border: 1px solid #6b5400; background-color: #ffc800; padding: 5px; color: white;
+                                }
+                            QPushButton:hover { background-color: #d9b11e; }
+                            QPushButton:focus {
+                                border: 1px solid grey;
+                                outline: none;
+                            }""")
+
 
         # Optional: Align left/right depending on sender
         if is_sender:
@@ -100,13 +118,23 @@ class Message(QWidget):
             self.bubble.setStyleSheet("background-color: #c7c3b9; border-radius: 10px; padding: 10px; color: #242321;")
         elif username=="CHALLENGE_NOTICE":
             self.bubbleLayout.addWidget(self.text)
-            print("HOLA")
+            self.text.setAlignment(Qt.AlignCenter)
+
+            button_layout = QHBoxLayout() # Layout for buttons
+
             if is_admin:
                 print("HOLA SOY ADMIN")
-                self.bubbleLayout.addWidget(self.m_acceptButton)
-            self.text.setAlignment(Qt.AlignCenter)
+                button_layout.addWidget(self.m_acceptButton)
+                self.m_acceptButton.clicked.connect(self.acceptChallengeClicked.emit) # <<< Connect accept
+            else:
+                # Add Join Button for non-admins. Server will handle if they can actually join.
+                button_layout.addWidget(self.m_joinButton)
+                self.m_joinButton.clicked.connect(self.joinChallengeClicked.emit) # <<< Connect join
+
+            self.bubbleLayout.addLayout(button_layout) # Add button layout
             layout.addWidget(self.bubble)
             self.bubble.setStyleSheet("background-color: yellow; border-radius: 10px; padding: 10px; color: #242321;")
+
         else:
             self.username = QLabel(username)
             self.username.setStyleSheet("padding: 0px; color: grey; font-size: 12px;")
@@ -124,6 +152,9 @@ class Message(QWidget):
 
 
 class ChatArea(QWidget):
+    acceptChallenge = Signal(int) # <<< Add signal with server_id
+    joinChallenge = Signal(int)   # <<< Add signal with server_id
+
     def __init__(self):
         super().__init__()
 
@@ -138,11 +169,10 @@ class ChatArea(QWidget):
         self.m_container_layout.setAlignment(Qt.AlignTop)
         self.m_container.setLayout(self.m_container_layout)
 
-        #self.m_container.setStyleSheet("background-color: #222831; border-radius: 10px")
         self.setStyleSheet("background-color: #222831; border-radius: 10px")
 
         self.m_container.setObjectName("ChatAreaContainer")
-                
+
         self.m_container.setStyleSheet(""" QWidget#ChatAreaContainer {
                             background: qlineargradient(
                                 spread:pad,
@@ -152,7 +182,7 @@ class ChatArea(QWidget):
                             );
                             border-radius: 10px;
                         }""")
-        
+
 
         self.m_scroll.setWidget(self.m_container)
 
@@ -161,14 +191,22 @@ class ChatArea(QWidget):
 
         self.setLayout(m_layout)
 
-    def add_message(self,username, text, timestamp, is_admin, is_sender):
+    def add_message(self, username, text, timestamp, is_admin, is_sender, server_id): # <<< Add server_id
         now = datetime.now()
         current_time = timestamp
 
-        message = Message(username,text, current_time, is_admin, is_sender)
+        message = Message(username, text, current_time, is_admin, is_sender)
         # Set message max width relative to ChatArea
         max_width = int(self.width() * 0.6)
         message.bubble.setMaximumWidth(max_width)
+
+        # <<< Connect signals BEFORE adding the widget >>>
+        if username == "CHALLENGE_NOTICE":
+            if is_admin:
+                message.acceptChallengeClicked.connect(lambda sid=server_id: self.acceptChallenge.emit(sid))
+            else:
+                message.joinChallengeClicked.connect(lambda sid=server_id: self.joinChallenge.emit(sid))
+
         self.m_container_layout.addWidget(message)
 
         # Scroll reliably using a delayed scroll on the vertical scrollbar
