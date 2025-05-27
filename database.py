@@ -22,7 +22,7 @@ def add_user(username, password):
 
         current_time = int(time.time())
 
-        cursor.execute("INSERT INTO users (username, password, created_at) VALUES (?, ?, ?)", 
+        cursor.execute("INSERT INTO users (username, password, created_at) VALUES (?, ?, ?)",
                        (username, password, current_time))
         conn.commit()
         print(f"User '{username}' added successfully.")
@@ -38,17 +38,17 @@ def add_user(username, password):
         if conn:
             conn.close()
 
-def get_user(username):
+def get_user(user_id):
     """Retrieves user details by username."""
     conn = None
     user_data = None
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         # Use row_factory to get results as dictionary-like objects
-        conn.row_factory = sqlite3.Row 
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute("SELECT user_id, username, password FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT user_id, username, password FROM users WHERE user_id = ?", (user_id,))
         user_data = cursor.fetchone() # Fetches one row or None
 
     except sqlite3.Error as e:
@@ -58,15 +58,37 @@ def get_user(username):
             conn.close()
     return user_data # Returns a Row object (like a dict) or None
 
+def get_user_by_name(username): # Needed to get ID from name
+    """Retrieves user_id by username."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    except sqlite3.Error as e:
+        print(f"Database error getting user by name '{username}': {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
+
 def check_user_credentials(username, password):
     """Checks if the username exists and the password is correct."""
-    user_data = get_user(username)
+    user_data = get_user_by_name(username) # Use get_user_by_name now
     if user_data:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT password FROM users WHERE user_id = ?", (user_data,))
+        stored_password = cursor.fetchone()['password']
+        conn.close()
+
         # Check the password
-        stored_password = user_data['password']
         if stored_password == password:
             print(f"Password match for user '{username}'.")
-            return user_data['user_id'] # Return user_id on success
+            return user_data # Return user_id on success
         else:
             print(f"Password mismatch for user '{username}'.")
             return None # Password incorrect
@@ -85,7 +107,7 @@ def get_challenge_participants(challenge_id):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT u.user_id, u.username 
+            SELECT u.user_id, u.username
             FROM challenge_participants cp
             JOIN users u ON cp.user_id = u.user_id
             WHERE cp.challenge_id = ?
@@ -109,18 +131,18 @@ def update_challenge_status(challenge_id, new_status):
         cursor = conn.cursor()
         conn.execute("PRAGMA foreign_keys = ON;")
         current_time = int(time.time())
-        
+
         cursor.execute("""
-            UPDATE challenges 
+            UPDATE challenges
             SET status = ?, updated_at = ?
-            WHERE challenge_id = ? 
+            WHERE challenge_id = ?
         """, (new_status, current_time, challenge_id))
-        
+
         if cursor.rowcount == 0:
             print(f"DB: No challenge found with ID {challenge_id} to update status to {new_status}.")
             conn.rollback() # Nothing was updated
             return False
-            
+
         conn.commit()
         print(f"DB: Challenge ID {challenge_id} status updated to '{new_status}'.")
         return True
@@ -130,6 +152,37 @@ def update_challenge_status(challenge_id, new_status):
         return False
     finally:
         if conn: conn.close()
+
+def add_winner_to_challenge(challenge_id, winner_user_id):
+    """Sets the winner for a specific challenge."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        conn.execute("PRAGMA foreign_keys = ON;")
+        current_time = int(time.time())
+
+        cursor.execute("""
+            UPDATE challenges
+            SET winner_user_id = ?, updated_at = ?
+            WHERE challenge_id = ?
+        """, (winner_user_id, current_time, challenge_id))
+
+        if cursor.rowcount == 0:
+            print(f"DB WARNING: No challenge found with ID {challenge_id} to add winner.")
+            conn.rollback()
+            return False
+
+        conn.commit()
+        print(f"DB: Challenge {challenge_id} winner set to User {winner_user_id}.")
+        return True
+    except sqlite3.Error as e:
+        print(f"DB ERROR adding winner for challenge {challenge_id}: {e}")
+        if conn: conn.rollback()
+        return False
+    finally:
+        if conn: conn.close()
+
 
 def add_participant_to_challenge(challenge_id, user_id, max_participants=4):
     """
@@ -202,7 +255,7 @@ def create_challenge(server_id, challenger_user_id, admin_user_id):
 
         # Check for existing active (pending or accepted) challenges in this server
         cursor.execute("""
-            SELECT challenge_id FROM challenges 
+            SELECT challenge_id FROM challenges
             WHERE server_id = ? AND status IN ('pending', 'accepted', 'in_progress')
         """, (server_id,))
         if cursor.fetchone():
@@ -251,7 +304,7 @@ def get_active_challenge_for_server(server_id):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT * FROM challenges 
+            SELECT * FROM challenges
             WHERE server_id = ? AND status IN ('pending', 'accepted', 'in_progress')
         """, (server_id,))
         row = cursor.fetchone()
@@ -261,6 +314,23 @@ def get_active_challenge_for_server(server_id):
         return None
     finally:
         if conn: conn.close()
+
+def get_challenge_details(challenge_id):
+    """Retrieves details of any challenge by its ID."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM challenges WHERE challenge_id = ?", (challenge_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as e:
+        print(f"DB ERROR getting details for challenge {challenge_id}: {e}")
+        return None
+    finally:
+        if conn: conn.close()
+
 
 def create_server(server_name, admin_user_id):
     conn = None
@@ -274,14 +344,14 @@ def create_server(server_name, admin_user_id):
         # Generate a unique invite code
         invite_code = None
         while True:
-            temp_code = generate_invite_code(12) 
+            temp_code = generate_invite_code(12)
             cursor.execute("SELECT 1 FROM servers WHERE invite_code = ?", (temp_code,))
             if cursor.fetchone() is None:
                 invite_code = temp_code
                 break # Found a unique code
 
         cursor.execute("""
-            INSERT INTO servers (name, admin_user_id, created_at, invite_code) 
+            INSERT INTO servers (name, admin_user_id, created_at, invite_code)
             VALUES (?, ?, ?, ?)
         """, (server_name, admin_user_id, current_time, invite_code))
         server_id = cursor.lastrowid
@@ -302,6 +372,39 @@ def create_server(server_name, admin_user_id):
         return None
     finally:
         if conn: conn.close()
+
+def update_server_admin(server_id, new_admin_id):
+    """Updates the admin for a specific server."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        conn.execute("PRAGMA foreign_keys = ON;")
+
+        # Check if the new admin is actually a member
+        cursor.execute("SELECT 1 FROM memberships WHERE user_id = ? AND server_id = ?", (new_admin_id, server_id))
+        if cursor.fetchone() is None:
+            print(f"DB ERROR: Cannot make User {new_admin_id} admin of Server {server_id} because they are not a member.")
+            return False
+
+        cursor.execute("UPDATE servers SET admin_user_id = ? WHERE server_id = ?",
+                       (new_admin_id, server_id))
+
+        if cursor.rowcount == 0:
+            print(f"DB WARNING: No server found with ID {server_id} to update admin.")
+            conn.rollback()
+            return False
+
+        conn.commit()
+        print(f"DB: Server {server_id} admin updated to User {new_admin_id}.")
+        return True
+    except sqlite3.Error as e:
+        print(f"DB ERROR updating server admin for {server_id}: {e}")
+        if conn: conn.rollback()
+        return False
+    finally:
+        if conn: conn.close()
+
 
 def get_server_by_invite_code(invite_code):
     """Retrieves server details by its invite code."""
@@ -345,8 +448,7 @@ def get_invite_code_for_server(server_id):
         print(f"Database error retrieving invite code for server {server_id}: {e}")
         return None
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
 def get_all_servers():
     """Retrieves a list of all servers (id, name, admin_id)."""
@@ -354,9 +456,9 @@ def get_all_servers():
     servers_list = []
     try:
         conn = sqlite3.connect(DATABASE_FILE)
-        conn.row_factory = sqlite3.Row 
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
+
         # Fetch admin username along with server details
         cursor.execute("""
             SELECT s.server_id, s.name, s.admin_user_id, u.username as admin_username
@@ -365,15 +467,15 @@ def get_all_servers():
             ORDER BY s.name ASC
         """)
         rows = cursor.fetchall()
-        
+
         for row in rows:
             servers_list.append({
-                "server_id": row["server_id"], 
-                "name": row["name"], 
+                "server_id": row["server_id"],
+                "name": row["name"],
                 "admin_user_id": row["admin_user_id"],
                 "admin_username": row["admin_username"]
             })
-            
+
     except sqlite3.Error as e:
         print(f"Database error retrieving all servers: {e}")
     finally:
@@ -389,7 +491,7 @@ def get_user_servers(user_id):
         conn = sqlite3.connect(DATABASE_FILE)
         conn.row_factory = sqlite3.Row # Allows accessing columns by name
         cursor = conn.cursor()
-        
+
         # Modified SQL to include s.invite_code
         cursor.execute("""
             SELECT s.server_id, s.name, s.admin_user_id, u_admin.username as admin_username, s.invite_code
@@ -400,7 +502,7 @@ def get_user_servers(user_id):
             ORDER BY s.name ASC
         """, (user_id,))
         rows = cursor.fetchall()
-        
+
         for row in rows:
             user_servers_list.append({
                 "server_id": row["server_id"],
@@ -409,7 +511,7 @@ def get_user_servers(user_id):
                 "admin_username": row["admin_username"],
                 "invite_code": row["invite_code"]  # <<< ADDED INVITE CODE HERE
             })
-            
+
     except sqlite3.Error as e:
         print(f"Database error retrieving servers for user {user_id}: {e}")
     finally:
@@ -425,7 +527,7 @@ def add_user_to_server(user_id, server_id):
         cursor = conn.cursor()
         conn.execute("PRAGMA foreign_keys = ON;")
         current_time = int(time.time())
-        
+
         cursor.execute("INSERT INTO memberships (user_id, server_id, joined_at) VALUES (?, ?, ?)",
                        (user_id, server_id, current_time))
         conn.commit()
@@ -473,8 +575,8 @@ def remove_user_from_server(user_id_leaving, server_id):
             cursor.execute("""
                 SELECT u.user_id, u.username FROM memberships m
                 JOIN users u ON m.user_id = u.user_id
-                WHERE m.server_id = ? 
-                ORDER BY m.joined_at ASC, m.membership_id ASC 
+                WHERE m.server_id = ?
+                ORDER BY m.joined_at ASC, m.membership_id ASC
                 LIMIT 1
             """, (server_id,))
             new_admin_data_row = cursor.fetchone() # Will be a tuple (user_id, username)
@@ -482,7 +584,7 @@ def remove_user_from_server(user_id_leaving, server_id):
             if new_admin_data_row:
                 new_admin_user_id = new_admin_data_row[0]
                 new_admin_username = new_admin_data_row[1]
-                cursor.execute("UPDATE servers SET admin_user_id = ? WHERE server_id = ?", 
+                cursor.execute("UPDATE servers SET admin_user_id = ? WHERE server_id = ?",
                                (new_admin_user_id, server_id))
                 conn.commit()
                 return {
@@ -510,7 +612,7 @@ def get_server_details(server_id):
         conn = sqlite3.connect(DATABASE_FILE)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
+
         cursor.execute("""
             SELECT s.server_id, s.name, s.admin_user_id, u.username as admin_username, s.created_at
             FROM servers s
@@ -518,12 +620,12 @@ def get_server_details(server_id):
             WHERE s.server_id = ?
         """, (server_id,))
         row = cursor.fetchone()
-        
+
         if row:
             return dict(row) # Convert sqlite3.Row to a dictionary
         else:
             return None # Server not found
-            
+
     except sqlite3.Error as e:
         print(f"Database error retrieving details for server {server_id}: {e}")
         return None
@@ -537,10 +639,10 @@ def is_user_member(user_id, server_id):
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-        
+
         cursor.execute("SELECT 1 FROM memberships WHERE user_id = ? AND server_id = ? LIMIT 1", (user_id, server_id))
         return cursor.fetchone() is not None # True if a row is found, False otherwise
-            
+
     except sqlite3.Error as e:
         print(f"Database error checking membership for user {user_id} in server {server_id}: {e}")
         return False # Default to False on error
@@ -556,7 +658,7 @@ def get_server_members(server_id):
         conn = sqlite3.connect(DATABASE_FILE)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
+
         cursor.execute("""
             SELECT u.user_id, u.username
             FROM users u
@@ -565,10 +667,10 @@ def get_server_members(server_id):
             ORDER BY u.username ASC
         """, (server_id,))
         rows = cursor.fetchall()
-        
+
         for row in rows:
             members_list.append(dict(row))
-            
+
     except sqlite3.Error as e:
         print(f"Database error retrieving members for server {server_id}: {e}")
     finally:
@@ -611,7 +713,7 @@ def get_messages_for_server(server_id, limit=50):
             FROM messages m
             JOIN users u ON m.user_id = u.user_id
             WHERE m.server_id = ?
-            ORDER BY m.timestamp DESC 
+            ORDER BY m.timestamp DESC
             LIMIT ?
         """, (server_id, limit)) # Get latest N messages
         rows = cursor.fetchall()
@@ -659,7 +761,7 @@ def initialize_database():
             admin_user_id INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
             invite_code TEXT UNIQUE NOT NULL,
-            FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE 
+            FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE
         );
         """)
         print("Checked/Created 'servers' table.")
@@ -673,7 +775,7 @@ def initialize_database():
             joined_at INTEGER NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
             FOREIGN KEY (server_id) REFERENCES servers(server_id) ON DELETE CASCADE,
-            UNIQUE(user_id, server_id) 
+            UNIQUE(user_id, server_id)
         );
         """)
         print("Checked/Created 'memberships' table.")
@@ -687,10 +789,30 @@ def initialize_database():
             content TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             FOREIGN KEY (server_id) REFERENCES servers(server_id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL 
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL
         );
         """)
         print("Checked/Created 'messages' table.")
+
+        # Create challenges table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS challenges (
+            challenge_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_id INTEGER NOT NULL,
+            challenger_user_id INTEGER NOT NULL,
+            admin_user_id INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending', 'accepted', 'declined', 'in_progress', 'completed')), -- Example statuses
+            winner_user_id INTEGER, -- Can be NULL
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES servers(server_id) ON DELETE CASCADE,
+            FOREIGN KEY (challenger_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (winner_user_id) REFERENCES users(user_id) ON DELETE SET NULL -- If winner deleted, just remove winner ref
+        );
+        """)
+        print("Checked/Created 'challenges' table.")
+
 
         # Create challenge_participants table
         cursor.execute("""
@@ -706,39 +828,17 @@ def initialize_database():
         """)
         print("Checked/Created 'challenge_participants' table.")
 
-        # Create challenges table
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS challenges (
-            challenge_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            server_id INTEGER NOT NULL,
-            challenger_user_id INTEGER NOT NULL,
-            admin_user_id INTEGER NOT NULL,
-            extra_participant_1 INTEGER,
-            extra_participant_2 INTEGER,
-            status TEXT NOT NULL CHECK(status IN ('pending', 'accepted', 'declined', 'in_progress', 'completed')), -- Example statuses
-            winner_user_id INTEGER, -- Can be NULL
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL,
-            FOREIGN KEY (server_id) REFERENCES servers(server_id) ON DELETE CASCADE,
-            FOREIGN KEY (challenger_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            FOREIGN KEY (extra_participant_1) REFERENCES users(user_id) ON DELETE CASCADE,
-            FOREIGN KEY (extra_participant_2) REFERENCES users(user_id) ON DELETE CASCADE,
-            FOREIGN KEY (winner_user_id) REFERENCES users(user_id) ON DELETE SET NULL -- If winner deleted, just remove winner ref
-        );
-        """)
-        print("Checked/Created 'challenges' table.")
 
         conn.commit() # Save the changes (table creations)
         cursor.execute("""
-            INSERT OR IGNORE INTO users (user_id, username, password, created_at) 
+            INSERT OR IGNORE INTO users (user_id, username, password, created_at)
             VALUES (?, ?, ?, ?)
         """, (SUPER_USER_ID, SUPER_USER_USERNAME, dummy_password, current_time))
         cursor.execute("""
-            INSERT OR IGNORE INTO users (user_id, username, password, created_at) 
+            INSERT OR IGNORE INTO users (user_id, username, password, created_at)
             VALUES (?, ?, ?, ?)
         """, (CHALLENGE_USER_ID, CHALLENGE_USER_USERNAME, dummy_password, current_time))
-        
+
         conn.commit()
         print("Database initialized successfully (including SYSTEM and CHALLENGE user check).")
 
