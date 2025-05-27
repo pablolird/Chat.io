@@ -1,3 +1,4 @@
+# app.py
 import ui.startpage.start_classes as start_page
 import ui.mainpage.main_page as main_page
 from ui.mainpage.mainbar_widgets import Chat
@@ -22,7 +23,7 @@ from PySide6.QtGui import (
     QFontDatabase,
     Qt
 )
-
+# ... (MSG_LENGTH_PREFIX_FORMAT and users dictionary) ...
 MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
 
@@ -92,12 +93,14 @@ class MainWindow(QMainWindow):
 
 
     def updateOnlineCount(self, userCount, serverID):
+        # ... (existing code) ...
         groupID = self.m_main_page.m_serverIDtoGroupBarIndex[serverID]
         group = self.m_main_page.m_mainBar.m_groupBar.m_groups[groupID]
         group.m_groupInfo.updateCount(userCount)
 
-    
+
     def changeUserStatus(self, username, flag):
+        # ... (existing code) ...
         for key in self.m_main_page.m_chatsContainer.m_chats:
             chat = self.m_main_page.m_chatsContainer.m_chats[key]
             if username in chat.m_members:
@@ -105,7 +108,9 @@ class MainWindow(QMainWindow):
                 chat.changeMemberStatus(username, flag)
                 self.updateOnlineCount(chat.m_onlineCount, chat.m_chatID)
 
+
     def showUsers(self, list, serverID):
+        # ... (existing code) ...
         chat = self.m_main_page.m_chatsContainer.m_chats[serverID]
         # Clear previous members
         chat.m_members.clear()
@@ -148,33 +153,39 @@ class MainWindow(QMainWindow):
 
             if username==self.m_username:
                 if admin_indicator=="user":
-                    inputBar.m_challengeButton.clicked.connect(lambda event: self.sendChallengeRequest(serverID))
+                    inputBar.m_challengeButton.clicked.connect(lambda event, sid=serverID: self.sendChallengeRequest(sid)) # <<< Pass serverID
 
                     inputBar.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg")))
-                    
+
                     inputBar.m_challengeButton.setCursor(Qt.PointingHandCursor)
                 else:
                     inputBar.m_challengeButton.setIcon(QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel-grey.svg")))
 
 
-                
+
             chat.addMember(username, user_id, admin_indicator, online)
 
             if (online):
                 chat.m_onlineCount+=1
                 self.updateOnlineCount(chat.m_onlineCount, serverID)
-        
+
+
     def sendChallengeRequest(self, serverID):
         self.sendRequest(f"/challenge_server_admin {serverID}")
-        # self.m_main_page.m_chatsContainer.m_chats[serverID].m_isAdmin
-        # chat = Chat()
-        # chat.
-        # print("  /challenge_server_admin <server_id> - ")
-        # print("  /join_challenge <server_id>")
-        # print("  /accept_challenge <server_id> ")
+
+    # <<< Add this method >>>
+    def acceptChallengeRequest(self, serverID):
+        print(f"CLIENT: Attempting to accept challenge for server ID: {serverID}")
+        self.sendRequest(f"/accept_challenge {serverID}")
+
+    # <<< Add this method >>>
+    def joinChallengeRequest(self, serverID):
+        print(f"CLIENT: Attempting to join challenge for server ID: {serverID}")
+        self.sendRequest(f"/join_challenge {serverID}")
 
 
     def deleteHistory(self, server_id):
+        # ... (existing code) ...
         container = self.m_main_page.m_chatsContainer.m_chats[server_id].m_chatView.m_chatArea.m_container_layout
 
         for child in container.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
@@ -183,6 +194,7 @@ class MainWindow(QMainWindow):
 
 
     def loadHistory(self, server_id, list):
+        # ... (existing code) ...
         self.deleteHistory(server_id)
         for msg_data in list:
             ts = format_timestamp(msg_data.get('timestamp'))
@@ -194,6 +206,7 @@ class MainWindow(QMainWindow):
 
 
     def handleRegister(self):
+        # ... (existing code) ...
         register_sect = self.m_start_page.m_registerSection
 
         username = register_sect.m_userInput.text()
@@ -207,8 +220,9 @@ class MainWindow(QMainWindow):
             else:
                 self.m_start_page.set_warning(0, "Passwords do not match.")
 
-        
+
     def handleLogin(self):
+        # ... (existing code) ...
         login_sect = self.m_start_page.m_loginSection
 
         username = login_sect.m_userInput.text()
@@ -222,6 +236,7 @@ class MainWindow(QMainWindow):
 
 
     def getMyServers(self, servers):
+        # ... (existing code) ...
         groupBar = self.m_main_page.m_mainBar.m_groupBar
         chatContainer = self.m_main_page.m_chatsContainer
 
@@ -248,10 +263,10 @@ class MainWindow(QMainWindow):
             self.addGroup(server_item.get('name'), server_item.get('server_id'), server_item.get('invite_code'), isAdmin)
 
 
-
     def sendMessage(self, ChatID):
+        # ... (existing code) ...
         text = self.m_main_page.m_chatsContainer.m_chats[ChatID].m_chatView.m_inputMessageBar.m_inputBar.text()
-        #/message <id> <message> 
+        #/message <id> <message>
         self.sendRequest(f"/message {ChatID} {text}")
         self.m_main_page.m_chatsContainer.m_chats[ChatID].m_chatView.m_inputMessageBar.m_inputBar.setText("")
 
@@ -263,25 +278,29 @@ class MainWindow(QMainWindow):
         timestamp = list[1]
         dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
         timestamp = dt.strftime("%m/%d %H:%M")
-        isSender = list[2]==self.m_username
+        sender = list[2] # <<< Get sender
+        isSender = sender == self.m_username
         text = list[3]
         print (f"{list[0]},{list[1]},{list[2]},{list[3]}")
 
         if server_id not in self.m_main_page.m_chatsContainer.m_chats:
             print(f"CLIENT: Received message for unknown server ID {server_id}. Ignoring for now.")
-            return  # Or queue it for later if needed
-        
-        is_admin = self.m_main_page.m_chatsContainer.m_chats[server_id].m_isAdmin
+            return
 
-        
-        self.m_main_page.m_chatsContainer.m_chats[server_id].m_chatView.m_chatArea.add_message(list[2],text, timestamp, is_admin, isSender)
+        chat = self.m_main_page.m_chatsContainer.m_chats[server_id]
+        is_admin = chat.m_isAdmin
+
+        # <<< Pass server_id to add_message >>>
+        chat.m_chatView.m_chatArea.add_message(sender, text, timestamp, is_admin, isSender, server_id)
 
 
     def switch_layout(self):
+        # ... (existing code) ...
         self.m_stack.setCurrentIndex(not self.m_stack.currentIndex())
 
 
     def handleAuth(self, username, password, action_choice):
+        # ... (existing code) ...
         request_auth = None
         if action_choice == 'R':
             request_auth = {"action": "REGISTER", "payload": {"username": username, "password": password}}
@@ -292,8 +311,8 @@ class MainWindow(QMainWindow):
             self.m_start_page.set_warning(0, "CLIENT: Failed to send authentication request. Exiting.")
 
             return 0
-        
-        self.m_socket.settimeout(5.0) 
+
+        self.m_socket.settimeout(5.0)
         response_auth = receive_json_client(s)
         self.m_socket.settimeout(None)
 
@@ -304,12 +323,12 @@ class MainWindow(QMainWindow):
         print(f"CLIENT: Server Auth Response: {response_auth.get('message', 'No message.')} (Status: {response_auth.get('status')})")
 
         if response_auth.get("status") == "success" and response_auth.get("action_response_to") == "LOGIN":
-            authenticated_user_details = response_auth.get("data") 
+            authenticated_user_details = response_auth.get("data")
             if not authenticated_user_details or 'username' not in authenticated_user_details:
                 print("CLIENT: Login success but user details missing. Exiting.")
-                running = False; return 
-            current_server_context_name = "Global" 
-            client_active_server_id = None 
+                running = False; return
+            current_server_context_name = "Global"
+            client_active_server_id = None
             self.m_start_page.set_warning(1, f"CLIENT: Login successful as {authenticated_user_details['username']}!")
             self.m_username = authenticated_user_details['username']
             self.m_userID = authenticated_user_details['user_id']
@@ -320,20 +339,21 @@ class MainWindow(QMainWindow):
         elif response_auth.get("status") == "error":
             self.m_start_page.set_warning(0, response_auth.get('message', 'No message.'))
 
-    # ADD WARNINGS FOR ALL REQUESTS
+
     def sendRequest(self, request):
+        # ... (existing code) ...
         sock = self.m_socket
         request_json = None
-        command_processed = False 
+        command_processed = False
 
         try:
 
             request_json = None
-            command_processed = False 
+            command_processed = False
 
             if request.startswith("/"):
-                command_processed = True 
-                parts = request.split(maxsplit=1) 
+                command_processed = True
+                parts = request.split(maxsplit=1)
                 command = parts[0].lower()
 
                 args_str = parts[1] if len(parts) > 1 else ""
@@ -360,7 +380,7 @@ class MainWindow(QMainWindow):
                     if len(args_list) == 1: # User provided a server ID
                         try:
                             target_server_id_for_request = int(args_list[0])
-                        except ValueError: 
+                        except ValueError:
                             print("CLIENT: Invalid server ID. Must be a number.")
                     else: print("CLIENT: Usage: /users_in_server <server_id>")
                     if target_server_id_for_request is not None:
@@ -368,7 +388,7 @@ class MainWindow(QMainWindow):
 
                 elif command == "/join_server": # Renamed from /join_server
                     if args_str: # Expecting a single argument: the invite code
-                        invite_code = args_str 
+                        invite_code = args_str
                         request_json = {"action": "JOIN_SERVER", "payload": {"invite_code": invite_code}}
                     else:
                         print("CLIENT: Usage: /join_server <invite_code>")
@@ -419,7 +439,7 @@ class MainWindow(QMainWindow):
                             print("CLIENT: Invalid server ID for /challenge_server_admin.")
                     else:
                         print("CLIENT: Usage: /challenge_server_admin <server_id>")
-                
+
                 elif command == "/user_kick":
                     if len(args_list) == 2: # Expects <server_id> <user_to_kick_id>
                         try:
@@ -449,7 +469,7 @@ class MainWindow(QMainWindow):
                             else: print("CLIENT: Message content cannot be empty for /message.")
                         except ValueError: print("CLIENT: Invalid server_id for /message.")
                     else: print("CLIENT: Usage: /message <server_id> <message_content>")
-                
+
                 elif command == "/help":
                     print("\nCLIENT: Available commands:")
                     print("  /create_server <name>   - Create a new server.")
@@ -468,41 +488,41 @@ class MainWindow(QMainWindow):
                     print("  /accept_challenge <server_id> ")
                 else:
                     print(f"CLIENT: Unknown command: {command}. Type /help for commands.")
-                
 
-            else: 
+
+            else:
                 print("CLIENT: Invalid input. Type /help for commands or /message <server_id> <message> to chat.")
-            
+
             if request_json:
                 if not send_json_client(sock, request_json):
                     print("CLIENT: Failed to send request to server. Disconnecting.")
-                    running = False 
+                    running = False
                 if request_json.get("action") == "DISCONNECT":
-                    running = False 
-        except EOFError: 
+                    running = False
+        except EOFError:
             print("\nCLIENT: EOF detected. Sending disconnect.")
             running = False
-            send_json_client(sock, {"action": "DISCONNECT"}) 
-        except KeyboardInterrupt: 
+            send_json_client(sock, {"action": "DISCONNECT"})
+        except KeyboardInterrupt:
             print("\nCLIENT: KeyboardInterrupt. Sending disconnect.")
             running = False
-            send_json_client(sock, {"action": "DISCONNECT"}) 
+            send_json_client(sock, {"action": "DISCONNECT"})
         except Exception as e:
             print(f"CLIENT: Error in sending thread: {e}")
 
-
     def receivingThread(self):
+        # ... (existing code, ensure CHAT_MESSAGE handles challenge messages) ...
         sock = self.m_socket
         global running
         global authenticated_user_details
         global current_server_context_name
-        global client_active_server_id 
+        global client_active_server_id
 
         while running:
             try:
                 response_data = receive_json_client(sock)
-                if response_data is None: 
-                    if running: 
+                if response_data is None:
+                    if running:
                         print("\rCLIENT: Disconnected from server (receiver).") # warning
                     running = False
                     break
@@ -514,8 +534,8 @@ class MainWindow(QMainWindow):
                 status = response_data.get("status")
                 message = response_data.get("message", "")
                 data = response_data.get("data", {})
-                
-                if action_response: 
+
+                if action_response:
                     print(f"SERVER ({action_response} - {status}): {message}")
                     if status == "success":
                         if action_response == "LIST_ALL_SERVERS" or action_response == "LIST_MY_SERVERS":
@@ -538,11 +558,11 @@ class MainWindow(QMainWindow):
                                 print(f"  Invite Code: {data.get('invite_code')}") # Display invite code
                                 self.m_main_page.m_mainBar.m_addGroups.m_createGroupForm.warn.emit("Group created successfully!", 1) # <----
                                 self.sendRequest("/my_servers") # <----
-                        
+
                         elif action_response == "JOIN_SERVER":
                             self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit("Joined group successfully!", 1) # <----
                             self.sendRequest("/my_servers") # <----
-                        
+
                         elif action_response == "SERVER_HISTORY": # Ensure this part is correct from previous step
                             server_name = data.get("server_name", "UnknownServer")
                             messages_history = data.get("messages", [])
@@ -551,13 +571,17 @@ class MainWindow(QMainWindow):
                                 self.messageHistory.emit(data.get('server_id'),messages_history) # <----
                             else:
                                 print("  No messages found for this server.")
-                    
+
                         elif action_response == "JOIN_CHALLENGE":
                             # The main message from the server ("You have successfully joined..." or error)
                             # is already printed by the generic response handler part:
                             # print(f"SERVER ({action_response} - {status}): {message}")
                             # No additional data payload expected for this specific response from server for now.
+                            print(f"SERVER: {message}") # <<< Print the server message
                             pass # Generic message already printed.
+
+                        elif action_response == "ACCEPT_CHALLENGE":
+                            print(f"SERVER: {message}") # <<< Print the server message
 
                         elif action_response == "CHALLENGE_ADMIN":
                             # The main message from the server ("Challenge initiated..." or error)
@@ -581,17 +605,17 @@ class MainWindow(QMainWindow):
                                         print(f"    - {member.get('username', 'Unknown')} (ID: {member.get('user_id')}) - {online_status} {admin_indicator}".strip())
                                 else:
                                     print("  No members found in this server.")
-                    
+
                     elif status=="error" and action_response=="JOIN_SERVER":
                         self.m_main_page.m_mainBar.m_addGroups.m_joinGroupForm.warn.emit(message,0) # <----
-            
+
                 elif response_data.get("type") == "MINIGAME_INVITE": # <<< NEW BROADCAST TYPE HANDLER
                             payload = response_data.get("payload", {})
                             server_name = payload.get('server_name', 'Unknown Server')
                             minigame_ip = payload.get('minigame_ip')
                             minigame_port = payload.get('minigame_port')
                             all_participants = payload.get('all_participants', [])
-                            
+
                             print(f"\n--- MINIGAME INVITE for Server '{server_name}'! ---")
                             print(f"  Challenge ID: {payload.get('challenge_id')}")
                             print(f"  Connect to Minigame Server at: IP={minigame_ip}, Port={minigame_port}")
@@ -623,37 +647,38 @@ class MainWindow(QMainWindow):
                     message_server_id = payload.get("server_id")
                     message_server_name = payload.get("server_name", f"ServerID_{message_server_id}")
                     ts = format_timestamp(payload.get('timestamp'))
-                    
+
                     print(f"({message_server_id}) [{ts}] {sender}: {msg_text}")
-                    
+
                     self.messageReceived.emit([message_server_id, ts, sender, msg_text]) # <----
-                    if (sender=="SYSTEM"):
+                    if (sender=="SYSTEM" or sender=="CHALLENGE_NOTICE"): # <<< Refresh users if system or challenge message
                         self.sendRequest(f"/users_in_server {message_server_id}") # <----
-                        self.onlineUsers.emit(members, message_server_id) # <----
-                elif response_data.get("type") == "USER_JOINED": 
+                        # self.onlineUsers.emit(members, message_server_id) # <---- No need to emit here, GET_SERVER_MEMBERS will do it
+
+                elif response_data.get("type") == "USER_JOINED":
                     payload = response_data.get("payload", {})
                     # This is a global "joined the system" message, like online status.
                     # Server-specific need more context
                     print(f"SERVER: {payload.get('username')} joined the chat system.")
                     self.modifyUserStatus.emit(payload.get('username'), 1) # <----
 
-                elif response_data.get("type") == "USER_LEFT": 
+                elif response_data.get("type") == "USER_LEFT":
                     payload = response_data.get("payload", {})
                     # This is a global "left the system" message, like offline status.
                     print(f"SERVER: {payload.get('username')} (ID: {payload.get('user_id')}) left the chat system.")
                     self.modifyUserStatus.emit(payload.get('username'), 0) # <----
-                
+
                 elif status == "error" and not action_response:
                     print(f"SERVER ERROR: {message}")
 
-                else: 
-                    if not action_response: 
+                else:
+                    if not action_response:
                         print(f"SERVER MSG: {message or response_data}")
 
             except Exception as e:
-                if running: 
+                if running:
                     print(f"\rCLIENT: Error in receiving thread: {e}")
-                running = False 
+                running = False
                 break
         print("CLIENT: Receiving thread stopped.")
 
@@ -672,23 +697,32 @@ class MainWindow(QMainWindow):
         self.m_main_page.m_chatsContainer.m_stack.addWidget(new_chat)
         chatIndex = self.m_main_page.m_chatsContainer.m_stack.indexOf(new_chat)
         new_chat.m_groupDescription.m_membersBar.m_leaveGroupButton.clicked.connect(lambda: self.leaveGroup(new_chat.m_chatID))
+
+        # <<< Connect signals here >>>
+        new_chat.m_chatView.m_chatArea.acceptChallenge.connect(self.acceptChallengeRequest)
+        new_chat.m_chatView.m_chatArea.joinChallenge.connect(self.joinChallengeRequest)
+
+
         self.m_main_page.serverIDtoIndex[chatID] = chatIndex
         self.sendRequest(f"/server_history {chatID}")
         self.sendRequest(f"/users_in_server {chatID}")
 
         new_chat.m_groupDescription.m_membersBar.m_groupInviteContainer.m_groupInvitationID.setText(inviteCode)
-    
+
 
     def leaveGroup(self, groupID):
+        # ... (existing code) ...
         self.sendRequest(f"/leave_server {groupID}")
         self.sendRequest("/my_servers")
 
+
     def switchChat(self, group):
+        # ... (existing code) ...
         self.m_main_page.m_chatsContainer.m_stack.setCurrentIndex(self.m_main_page.serverIDtoIndex[group.m_chatID])
         for g in self.m_main_page.m_mainBar.m_groupBar.m_groups:
             g.setSelected(g == group)
 
-
+# ... (send_json_client, receive_all, receive_json_client functions) ...
 def send_json_client(sock, data_dict):
     try:
         json_bytes = json.dumps(data_dict).encode('utf-8')
@@ -709,7 +743,7 @@ def receive_all(sock, num_bytes_to_receive):
     received_data = bytearray()
     while len(received_data) < num_bytes_to_receive:
         try:
-            bytes_to_get_now = min(num_bytes_to_receive - len(received_data), 4096) 
+            bytes_to_get_now = min(num_bytes_to_receive - len(received_data), 4096)
             packet = sock.recv(bytes_to_get_now)
         except socket.timeout:
             print("CLIENT: Socket timeout during receive_all.")
@@ -720,11 +754,11 @@ def receive_all(sock, num_bytes_to_receive):
         except Exception as e: # Other socket errors
             print(f"CLIENT: Socket error during receive_all: {e}")
             return None
-        
+
         if not packet:
             # Connection closed prematurely by the server
             print("CLIENT: Connection closed by server while expecting more data in receive_all.")
-            return None 
+            return None
         received_data.extend(packet)
     return received_data
 
@@ -744,12 +778,12 @@ def receive_json_client(sock):
         # 3. Receive the actual JSON message data
         json_message_bytes = receive_all(sock, actual_message_length)
         if json_message_bytes is None:
-            if running: running = False 
+            if running: running = False
             return None
-        
+
         # 4. Decode from UTF-8 and parse JSON
         json_string = json_message_bytes.decode('utf-8')
-        print(f"CLIENT DEBUG: Received JSON string: {json_string[:200]}...") 
+        print(f"CLIENT DEBUG: Received JSON string: {json_string[:200]}...")
         return json.loads(json_string)
 
     except struct.error as se:
@@ -759,15 +793,15 @@ def receive_json_client(sock):
     except json.JSONDecodeError as je:
         print(f"CLIENT: Failed to decode JSON received from server. Error: {je}")
         print(f"CLIENT DEBUG MALFORMED JSON DATA: <{json_message_bytes.decode('utf-8', errors='ignore') if 'json_message_bytes' in locals() else 'Could not decode for debug'}>")
-        if running: running = False 
+        if running: running = False
         return {"status": "error", "message": "Malformed JSON received from server (decode error)."} # Or None
-    except Exception as e: 
+    except Exception as e:
         print(f"CLIENT: Critical error in receive_json_client: {e}")
         if running: running = False
         return None
 
 
-running = True 
+running = True
 authenticated_user_details = None # Stores {'user_id': id, 'username': name}
 current_server_context_name = "Global" # Default context name for the prompt
 client_active_server_id = None # <<<< NEW: Stores the ID of the server client is currently in
@@ -776,7 +810,7 @@ client_active_server_id = None # <<<< NEW: Stores the ID of the server client is
 if __name__ == "__main__":
 
     os.system('cls' if os.name == 'nt' else 'clear')
-    
+
     # if len(sys.argv) < 2:
     #     print("Usage: python client.py <port>")
     #     sys.exit(1)
@@ -790,7 +824,7 @@ if __name__ == "__main__":
 
     server_ip = '127.0.0.1'
     s = socket.socket()
-    s.settimeout(10.0) 
+    s.settimeout(10.0)
 
     try:
         print(f"CLIENT: Connecting to {server_ip}:{port}...")
@@ -814,8 +848,8 @@ if __name__ == "__main__":
     appIcon = QIcon(os.path.join("assets","icons","Interface-Essential-Crown--Streamline-Pixel.svg"))
     app.setWindowIcon(appIcon)
 
-    s.settimeout(None) 
-    
+    s.settimeout(None)
+
 
 
     window.show()
