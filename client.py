@@ -5,11 +5,13 @@ import threading
 import sys
 import json
 import getpass
-import time 
+import time
 import struct
+import subprocess # <<< ADDED
 
 MSG_LENGTH_PREFIX_FORMAT = '!I'  # Network byte order, Unsigned Integer (4 bytes)
 MSG_LENGTH_PREFIX_SIZE = struct.calcsize(MSG_LENGTH_PREFIX_FORMAT)
+GODOT_EXECUTABLE_PATH = "/home/vawms/Workspace/DS/Chat-App---Final-Project/GodotGame/finalv2.x86_64" # <<< ADDED: Path to your game executable
 
 def send_json_client(sock, data_dict):
     try:
@@ -31,7 +33,7 @@ def receive_all(sock, num_bytes_to_receive):
     received_data = bytearray()
     while len(received_data) < num_bytes_to_receive:
         try:
-            bytes_to_get_now = min(num_bytes_to_receive - len(received_data), 4096) 
+            bytes_to_get_now = min(num_bytes_to_receive - len(received_data), 4096)
             packet = sock.recv(bytes_to_get_now)
         except socket.timeout:
             print("CLIENT: Socket timeout during receive_all.")
@@ -42,11 +44,11 @@ def receive_all(sock, num_bytes_to_receive):
         except Exception as e: # Other socket errors
             print(f"CLIENT: Socket error during receive_all: {e}")
             return None
-        
+
         if not packet:
             # Connection closed prematurely by the server
             print("CLIENT: Connection closed by server while expecting more data in receive_all.")
-            return None 
+            return None
         received_data.extend(packet)
     return received_data
 
@@ -66,12 +68,12 @@ def receive_json_client(sock):
         # 3. Receive the actual JSON message data
         json_message_bytes = receive_all(sock, actual_message_length)
         if json_message_bytes is None:
-            if running: running = False 
+            if running: running = False
             return None
-        
+
         # 4. Decode from UTF-8 and parse JSON
         json_string = json_message_bytes.decode('utf-8')
-        print(f"CLIENT DEBUG: Received JSON string: {json_string[:200]}...") 
+        print(f"CLIENT DEBUG: Received JSON string: {json_string[:200]}...")
         return json.loads(json_string)
 
     except struct.error as se:
@@ -81,17 +83,17 @@ def receive_json_client(sock):
     except json.JSONDecodeError as je:
         print(f"CLIENT: Failed to decode JSON received from server. Error: {je}")
         print(f"CLIENT DEBUG MALFORMED JSON DATA: <{json_message_bytes.decode('utf-8', errors='ignore') if 'json_message_bytes' in locals() else 'Could not decode for debug'}>")
-        if running: running = False 
+        if running: running = False
         return {"status": "error", "message": "Malformed JSON received from server (decode error)."} # Or None
-    except Exception as e: 
+    except Exception as e:
         print(f"CLIENT: Critical error in receive_json_client: {e}")
         if running: running = False
         return None
 
-running = True 
+running = True
 authenticated_user_details = None # Stores {'user_id': id, 'username': name}
 current_server_context_name = "Global" # Default context name for the prompt
-client_active_server_id = None 
+client_active_server_id = None
 
 def format_timestamp(unix_ts):
     """Helper to format Unix timestamp into a readable string."""
@@ -114,20 +116,20 @@ def sendingThread(sock):
     global client_active_server_id # Used to provide default server_id
 
     print(f"\n--- Type /help for commands, or your message to chat. ---")
-    sys.stdout.write(get_prompt()) 
+    sys.stdout.write(get_prompt())
     sys.stdout.flush()
 
     while running:
         try:
-            user_input = input() 
+            user_input = input()
             if not running: break
 
             request_json = None
-            command_processed = False 
+            command_processed = False
 
             if user_input.startswith("/"):
-                command_processed = True 
-                parts = user_input.split(maxsplit=1) 
+                command_processed = True
+                parts = user_input.split(maxsplit=1)
                 command = parts[0].lower()
 
                 args_str = parts[1] if len(parts) > 1 else ""
@@ -160,7 +162,7 @@ def sendingThread(sock):
 
                 elif command == "/join_server": # Renamed from /join_server
                     if args_str: # Expecting a single argument: the invite code
-                        invite_code = args_str 
+                        invite_code = args_str
                         request_json = {"action": "JOIN_SERVER", "payload": {"invite_code": invite_code}}
                     else:
                         print("CLIENT: Usage: /join_server <invite_code>")
@@ -180,7 +182,7 @@ def sendingThread(sock):
                             request_json = {"action": "SERVER_HISTORY", "payload": {"server_id": server_id}}
                         except ValueError: print("CLIENT: Invalid server ID. Must be a number.")
                     else: print("CLIENT: Usage: /server_history <server_id>")
-                
+
                 elif command == "/accept_challenge":
                     if len(args_list) == 1:
                         try:
@@ -210,7 +212,7 @@ def sendingThread(sock):
                             print("CLIENT: Invalid server ID for /challenge_server_admin.")
                     else:
                         print("CLIENT: Usage: /challenge_server_admin <server_id>")
-                
+
                 elif command == "/user_kick":
                     if len(args_list) == 2: # Expects <server_id> <user_to_kick_id>
                         try:
@@ -239,7 +241,7 @@ def sendingThread(sock):
                             else: print("CLIENT: Message content cannot be empty for /message.")
                         except ValueError: print("CLIENT: Invalid server_id for /message.")
                     else: print("CLIENT: Usage: /message <server_id> <message_content>")
-                
+
                 elif command == "/help":
                     print("\nCLIENT: Available commands:")
                     print("  /create_server <name>   - Create a new server.")
@@ -258,33 +260,33 @@ def sendingThread(sock):
                     print("  /accept_challenge <server_id> ")
                 else:
                     print(f"CLIENT: Unknown command: {command}. Type /help for commands.")
-                
-                if not request_json and command_processed: 
-                    sys.stdout.write(get_prompt()) 
+
+                if not request_json and command_processed:
+                    sys.stdout.write(get_prompt())
                     sys.stdout.flush()
-            else: 
+            else:
                 print("CLIENT: Invalid input. Type /help for commands or /message <server_id> <message> to chat.")
                 sys.stdout.write(get_prompt()); sys.stdout.flush()
-            
+
             if request_json:
                 if not send_json_client(sock, request_json):
                     print("CLIENT: Failed to send request to server. Disconnecting.")
-                    running = False 
+                    running = False
                 if request_json.get("action") == "DISCONNECT":
-                    running = False 
-                    break 
-        except EOFError: 
+                    running = False
+                    break
+        except EOFError:
             print("\nCLIENT: EOF detected. Sending disconnect.")
             running = False
-            send_json_client(sock, {"action": "DISCONNECT"}) 
+            send_json_client(sock, {"action": "DISCONNECT"})
             break
-        except KeyboardInterrupt: 
+        except KeyboardInterrupt:
             print("\nCLIENT: KeyboardInterrupt. Sending disconnect.")
             running = False
-            send_json_client(sock, {"action": "DISCONNECT"}) 
+            send_json_client(sock, {"action": "DISCONNECT"})
             break
         except Exception as e:
-            if running: 
+            if running:
                 print(f"CLIENT: Error in sending thread: {e}")
             running = False
             break
@@ -295,13 +297,13 @@ def receivingThread(sock):
     global running
     global authenticated_user_details
     global current_server_context_name
-    global client_active_server_id 
+    global client_active_server_id
 
     while running:
         try:
             response_data = receive_json_client(sock)
-            if response_data is None: 
-                if running: 
+            if response_data is None:
+                if running:
                     print("\rCLIENT: Disconnected from server (receiver).")
                 running = False
                 break
@@ -314,7 +316,7 @@ def receivingThread(sock):
             message = response_data.get("message", "")
             data = response_data.get("data", {})
 
-            if action_response: 
+            if action_response:
                 print(f"SERVER ({action_response} - {status}): {message}")
                 if status == "success":
                     if action_response == "LIST_ALL_SERVERS" or action_response == "LIST_MY_SERVERS":
@@ -329,12 +331,12 @@ def receivingThread(sock):
                                 print(f"    ID: {server_item.get('server_id')}, Name: \"{server_item.get('name')}\", {admin_info}{invite_info}")
                         else:
                             print("  No servers to display.")
-                            
+
                     elif action_response == "CREATE_SERVER":
                         if status == "success":
                             print(f"  Server Name: '{data.get('server_name')}', ID: {data.get('server_id')}")
                             print(f"  Invite Code: {data.get('invite_code')}") # Display invite code
-                    
+
                     elif action_response == "SERVER_HISTORY": # Ensure this part is correct from previous step
                         server_name = data.get("server_name", "UnknownServer")
                         messages_history = data.get("messages", [])
@@ -348,22 +350,14 @@ def receivingThread(sock):
                             print("  --- End of History ---")
                         else:
                             print("  No messages found for this server.")
-                    
+
                     elif action_response == "JOIN_CHALLENGE":
-                        # The main message from the server ("You have successfully joined..." or error)
-                        # is already printed by the generic response handler part:
-                        # print(f"SERVER ({action_response} - {status}): {message}")
-                        # No additional data payload expected for this specific response from server for now.
                         pass # Generic message already printed.
 
                     elif action_response == "CHALLENGE_ADMIN":
-                        # The main message from the server ("Challenge initiated..." or error)
-                        # is already printed by the generic response handler.
-                        # If successful, 'data' might contain challenge_id.
                         if status == "success" and data.get("challenge_id"):
                             print(f"  Challenge ID {data.get('challenge_id')} created for server '{data.get('server_name')}'.")
-                        # Additional specific display logic for this response if needed.
-                    
+
                     elif action_response == "GET_SERVER_MEMBERS":
                         if status == "success":
                             server_name_from_resp = data.get("server_name", f"ID {data.get('server_id')}")
@@ -376,22 +370,52 @@ def receivingThread(sock):
                                     print(f"    - {member.get('username', 'Unknown')} (ID: {member.get('user_id')}) - {online_status} {admin_indicator}".strip())
                             else:
                                 print("  No members found in this server.")
-            
-            elif response_data.get("type") == "MINIGAME_INVITE": # <<< NEW BROADCAST TYPE HANDLER
+
+            elif response_data.get("type") == "MINIGAME_INVITE": # <<< MODIFIED HANDLER
                         payload = response_data.get("payload", {})
                         server_name = payload.get('server_name', 'Unknown Server')
                         minigame_ip = payload.get('minigame_ip')
                         minigame_port = payload.get('minigame_port')
                         all_participants = payload.get('all_participants', [])
-                        
+
+                        # Clear line before printing
+                        sys.stdout.write('\r' + ' ' * (prompt_len + 100) + '\r')
+
                         print(f"\n--- MINIGAME INVITE for Server '{server_name}'! ---")
                         print(f"  Challenge ID: {payload.get('challenge_id')}")
                         print(f"  Connect to Minigame Server at: IP={minigame_ip}, Port={minigame_port}")
                         print(f"  Game Type: {payload.get('game_type', 'N/A')}")
                         print(f"  Participants: {', '.join(all_participants)}")
-                        print(f"  --- If you are a participant, you would now launch your minigame client! ---")
-                        # Example: os.system(f"minigame_client.exe {minigame_ip} {minigame_port}") # This is just a placeholder
-                        # For now, just print the info.
+
+                        # Check if I am a participant
+                        my_username = authenticated_user_details['username'] if authenticated_user_details else None
+                        if my_username and my_username in all_participants:
+                            print(f"  --- You are {my_username}! Launching your minigame client... ---")
+                            try:
+                                game_command = [
+                                    GODOT_EXECUTABLE_PATH,
+                                    "--player",
+                                    f"--ip={minigame_ip}",
+                                    f"--name={my_username}"
+                                ]
+                                print(f"CLIENT: Launching game: {' '.join(game_command)}")
+                                # Use Popen - this will run in the background.
+                                subprocess.Popen(
+                                    game_command,
+                                    cwd=os.path.dirname(GODOT_EXECUTABLE_PATH) or '.'
+                                )
+                            except FileNotFoundError:
+                                print(f"ERROR: Godot executable not found at {GODOT_EXECUTABLE_PATH}. Cannot join game.")
+                            except Exception as e_game_launch:
+                                print(f"ERROR: Failed to launch game client: {e_game_launch}")
+                        else:
+                             print(f"  --- You are not a participant ({my_username}). ---")
+
+                        # Reprint prompt after printing invite
+                        sys.stdout.write(get_prompt())
+                        sys.stdout.flush()
+                        continue # Skip default prompt print at end
+
 
             elif response_data.get("type") == "YOU_WERE_KICKED": # <<< NEW BROADCAST TYPE HANDLER
                 payload = response_data.get("payload", {})
@@ -404,13 +428,6 @@ def receivingThread(sock):
 
                 print(f"ALERT: You have been kicked from server '{server_name}' by Admin {kicked_by}.")
 
-                # Optional: If client was tracking an active server context, clear it
-                # global client_active_server_id, current_server_context_name
-                # if client_active_server_id == payload.get('server_id'):
-                #     print(f"CLIENT: You are no longer active in '{server_name}'.")
-                #     client_active_server_id = None
-                #     current_server_context_name = "Global" # Or some other default
-
                 sys.stdout.write(get_prompt()) # Re-print prompt
                 sys.stdout.flush()
                 continue
@@ -422,39 +439,36 @@ def receivingThread(sock):
                 message_server_id = payload.get("server_id")
                 message_server_name = payload.get("server_name", f"ServerID_{message_server_id}")
                 ts = format_timestamp(payload.get('timestamp'))
-                
+
                 print(f"({message_server_id}) [{ts}] {sender}: {msg_text}")
-            
-            elif response_data.get("type") == "USER_JOINED": 
+
+            elif response_data.get("type") == "USER_JOINED":
                 payload = response_data.get("payload", {})
-                # This is a global "joined the system" message, like online status.
-                # Server-specific need more context
                 print(f"SERVER: {payload.get('username')} joined the chat system.")
-            elif response_data.get("type") == "USER_LEFT": 
+            elif response_data.get("type") == "USER_LEFT":
                 payload = response_data.get("payload", {})
-                # This is a global "left the system" message, like offline status.
                 print(f"SERVER: {payload.get('username')} (ID: {payload.get('user_id')}) left the chat system.")
-            
+
             elif status == "error" and not action_response:
                  print(f"SERVER ERROR: {message}")
-            
-            else: 
-                 if not action_response: 
+
+            else:
+                 if not action_response:
                     print(f"SERVER MSG: {message or response_data}")
 
             sys.stdout.write(get_prompt())
             sys.stdout.flush()
 
         except Exception as e:
-            if running: 
+            if running:
                 print(f"\rCLIENT: Error in receiving thread: {e}")
-            running = False 
+            running = False
             break
     print("CLIENT: Receiving thread stopped.")
 
 if __name__ == "__main__":
     os.system('cls' if os.name == 'nt' else 'clear')
-    
+
     if len(sys.argv) < 2:
         print("Usage: python client.py <port>")
         sys.exit(1)
@@ -464,10 +478,10 @@ if __name__ == "__main__":
     except ValueError as e:
         print(f"Invalid port: {e}")
         sys.exit(1)
-        
+
     server_ip = '127.0.0.1'
     s = socket.socket()
-    s.settimeout(10.0) 
+    s.settimeout(10.0)
 
     try:
         print(f"CLIENT: Connecting to {server_ip}:{port}...")
@@ -479,8 +493,8 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"CLIENT: Failed to connect: {e}")
         sys.exit(1)
-    
-    s.settimeout(None) 
+
+    s.settimeout(None)
     while not authenticated_user_details and running:
         action_choice = input("CLIENT: (L)ogin or (R)egister? ").upper()
         if not action_choice: continue
@@ -490,7 +504,7 @@ if __name__ == "__main__":
 
         password = getpass.getpass("CLIENT: Password: ")
         if not password: continue
-        
+
         request_auth = None
         if action_choice == 'R':
             request_auth = {"action": "REGISTER", "payload": {"username": username, "password": password}}
@@ -502,63 +516,70 @@ if __name__ == "__main__":
 
         if not send_json_client(s, request_auth):
             print("CLIENT: Failed to send authentication request. Exiting.")
-            running = False; break 
-        
-        s.settimeout(5.0) 
+            running = False; break
+
+        s.settimeout(5.0)
         response_auth = receive_json_client(s)
         s.settimeout(None)
 
         if response_auth is None:
             print("CLIENT: Did not receive authentication response from server or connection lost.")
-            running = False; break 
+            running = False; break
 
         print(f"CLIENT: Server Auth Response: {response_auth.get('message', 'No message.')} (Status: {response_auth.get('status')})")
 
         if response_auth.get("status") == "success" and response_auth.get("action_response_to") == "LOGIN":
-            authenticated_user_details = response_auth.get("data") 
+            authenticated_user_details = response_auth.get("data")
             if not authenticated_user_details or 'username' not in authenticated_user_details:
                 print("CLIENT: Login success but user details missing. Exiting.")
                 running = False; break
-            current_server_context_name = "Global" 
-            client_active_server_id = None 
+            current_server_context_name = "Global"
+            client_active_server_id = None
             print(f"CLIENT: Login successful as {authenticated_user_details['username']}!")
-            break 
+            break
         elif response_auth.get("status") == "success" and response_auth.get("action_response_to") == "REGISTER":
             print("CLIENT: Registration successful. Please login.")
         elif response_auth.get("status") == "error":
              pass
-    
+
     if authenticated_user_details and running:
         print(f"\n--- Welcome {authenticated_user_details['username']}! ---")
-        
+
         sending_thread = threading.Thread(target=sendingThread, args=(s,))
         receiving_thread = threading.Thread(target=receivingThread, args=(s,))
 
-        sending_thread.daemon = True 
+        sending_thread.daemon = True
         receiving_thread.daemon = True
 
         sending_thread.start()
         receiving_thread.start()
 
-        while running:
-            try:
-                time.sleep(0.1) 
-                if not sending_thread.is_alive() and not receiving_thread.is_alive():
-                    running = False 
-                    break
-            except KeyboardInterrupt:
-                print("\nCLIENT: Ctrl+C detected in main loop. Shutting down.")
-                running = False
-                if s and not s._closed: send_json_client(s, {"action": "DISCONNECT"})
-                break
-        
-        print("CLIENT: Main loop detected threads should stop. Joining threads...")
-        if sending_thread.is_alive(): sending_thread.join(timeout=1.0)
-        if receiving_thread.is_alive(): receiving_thread.join(timeout=1.0)
-            
-    print("CLIENT: Disconnected.")
-    if s and not s._closed:
+        # <<< MODIFIED: Use a running flag and join threads for cleaner exit >>>
         try:
-            s.shutdown(socket.SHUT_RDWR) 
-        except OSError: pass 
+            while running:
+                time.sleep(0.5) # Main thread can sleep
+                if not sending_thread.is_alive() or not receiving_thread.is_alive():
+                     print("CLIENT: A thread has exited. Shutting down.")
+                     running = False # Signal other threads
+                     break
+        except KeyboardInterrupt:
+            print("\nCLIENT: Ctrl+C detected in main loop. Shutting down.")
+            running = False
+            # Try to send disconnect, but don't block/error if socket is dead
+            if s and not getattr(s, '_closed', True):
+                 try:
+                     send_json_client(s, {"action": "DISCONNECT"})
+                 except: pass
+
+
+        print("CLIENT: Main loop finished. Joining threads...")
+        # Give threads a chance to finish based on 'running' flag
+        if sending_thread.is_alive(): sending_thread.join(timeout=2.0)
+        if receiving_thread.is_alive(): receiving_thread.join(timeout=2.0)
+
+    print("CLIENT: Disconnected.")
+    if s and not getattr(s, '_closed', True): # Check if socket exists and not closed
+        try:
+            s.shutdown(socket.SHUT_RDWR)
+        except OSError: pass
         s.close()
