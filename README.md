@@ -12,13 +12,15 @@
 ![Godot Engine Badge](https://img.shields.io/badge/Godot%20Engine-478CBF?logo=godotengine&logoColor=fff&style=for-the-badge)
 ![MongoDB Badge](https://img.shields.io/badge/MongoDB-47A248?logo=mongodb&logoColor=fff&style=for-the-badge)
 
-# Chat.io - A Real-Time Chat Application with Minigames
+# 👑 Chat.io - A Real-Time Chat Application with Minigames
 
 **Chat.io** is a dynamic, multi-user chat application that enables users to connect to various servers, engage in real-time messaging, and challenge the admin in exciting minigames developed with the Godot Engine to become the new leader of the group. The application features a robust client-server architecture, user authentication, and a rich graphical user interface built with PySide6.
 
 ---
 
 ![clideo_editor_23b778ab496547c296c5ade344fc6901](https://github.com/user-attachments/assets/99263c93-7f97-40c8-bb2b-74eed8925a37)
+
+
 
 ## 🌟 Features
 
@@ -41,6 +43,16 @@
     * The winner of the minigame is detected, announced, and promoted to server admin.
 * **Graphical User Interface (GUI)**: Intuitive and responsive UI developed using PySide6.
 * **Cross-Platform Game Executables**: Godot game exports for Windows and Linux included.
+
+---
+
+## 🎮 Minigame Modes
+
+### 🔫 Shootout
+
+### 🏃 Parkour 
+
+### 👑 King of the Hill
 
 ---
 
