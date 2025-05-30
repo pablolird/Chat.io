@@ -135,7 +135,7 @@ Chat-App---Final-Project/
     ```bash
     python app.py
     ```
-    The application will attempt to connect to the server IP `192.168.50.91` and port `1235` as hardcoded in `app.py`. You may need to adjust this in `app.py` if your server is running on a different IP or you used a different port.
+    The application will attempt to connect to the server IP `127.0.0.1` and port `1235` as hardcoded in `app.py`. You may need to adjust this in `app.py` if your server is running on a different IP or you used a different port.
 
 ---
 
@@ -161,28 +161,6 @@ Chat-App---Final-Project/
     * **Join Challenge**: If you are a regular member in a server where a challenge has been initiated but not yet accepted, the "CHALLENGE_NOTICE" message will have a "Join Challenge" button. Click this to participate (up to `MAX_CHALLENGE_PARTICIPANTS`, typically 4).
     * **Game Launch**: Once the admin accepts, the Godot game server will start, and participants' game clients will launch automatically, connecting them to the minigame.
     * **Winner**: After the game, the winner is announced in chat, and they become the new server admin.
-
----
-
-## 💡 How Minigames Work (Technical Flow)
-
-1.  A user (non-admin) in a server initiates a challenge against the current server admin via the GUI. This sends a `/challenge_server_admin <server_id>` request.
-2.  The server receives this, validates it, and if valid, creates a "challenge" entry in the database with a 'pending' status. It then broadcasts a "CHALLENGE_NOTICE" message to the server, including buttons for the admin to "Accept" and for other users to "Join".
-3.  The admin can click "Accept Challenge" (sends `/accept_challenge <server_id>`). Other users can click "Join Challenge" (sends `/join_challenge <server_id>`) to be added as participants to the database record for that challenge.
-4.  When the admin accepts:
-    * The server updates the challenge status to "accepted".
-    * It launches a new Godot game server process in headless mode (`FinalLinux.x86_64 --server --headless --ip=<server_ip> --<player_count_flag>`). The `<player_count_flag>` (e.g., `--four`) is determined by the number of participants.
-    * A separate thread (`monitor_game_process`) is started to monitor the stdout of this Godot server process for a "WINNER:" message.
-    * The server sends a "MINIGAME_INVITE" message to all registered participants (challenger, admin, and joiners). This message includes the game server IP (currently `DUMMY_MINIGAME_IP = "192.168.50.91"`), port, and participant usernames.
-5.  Client applications (`app.py`) receiving the "MINIGAME_INVITE":
-    * If the current user is one of the participants, it automatically launches the Godot game client (`FinalLinux.x86_64 --player --ip=<game_ip> --name=<username>`).
-6.  Godot Game Play:
-    * Players connect to the Godot server.
-    * The Godot game server, upon game completion, is expected to print "WINNER: <username>" to its standard output.
-7.  Winner Detection & Conclusion:
-    * The `monitor_game_process` thread on the Python server reads this output, extracts the winner's username.
-    * It updates the challenge status to "completed", records the winner, and updates the server's admin to be the winner in the database.
-    * A system message is broadcast to the chat server announcing the winner and the new admin.
 
 ---
 
