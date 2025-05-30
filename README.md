@@ -50,9 +50,17 @@
 
 ### 🔫 Shootout
 
+![shotout](https://github.com/user-attachments/assets/5ae11dd1-e900-4210-acbe-7a4c123053a1)
+
+
 ### 🏃 Parkour 
 
+![Uploading park.gif…]()
+
+
 ### 👑 King of the Hill
+
+
 
 ---
 
