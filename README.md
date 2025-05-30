@@ -18,6 +18,8 @@
 
 ---
 
+![clideo_editor_23b778ab496547c296c5ade344fc6901](https://github.com/user-attachments/assets/99263c93-7f97-40c8-bb2b-74eed8925a37)
+
 ## 🌟 Features
 
 * **User Authentication**: Secure registration and login system for users.
@@ -28,8 +30,7 @@
     * Leave servers.
     * List all available servers and servers the user is a member of.
 * **Admin Controls**:
-    * Server administrators can kick users from their server.
-    * Automatic admin reassignment if the current admin leaves.
+    * Automatic admin reassignment if the current admin leaves or loses a challenge.
 * **Message History**: View recent messages for a server.
 * **User Presence**: See who's online in a server, including their admin status.
 * **Minigame Integration**:
@@ -40,7 +41,6 @@
     * The winner of the minigame is detected, announced, and promoted to server admin.
 * **Graphical User Interface (GUI)**: Intuitive and responsive UI developed using PySide6.
 * **Cross-Platform Game Executables**: Godot game exports for Windows and Linux included.
-* **(Optional) Message Logging**: Server-side logging of message traffic to MongoDB.
 
 ---
 
@@ -90,7 +90,7 @@ Chat-App---Final-Project/
 ### Prerequisites
 * Python 3.x
 * PySide6
-* (Optional) MongoDB: If you want to use the message logging feature.
+* MongoDB
 * Godot Engine (only if you intend to modify or re-export the minigame)
 
 ### Steps
@@ -164,23 +164,6 @@ Chat-App---Final-Project/
 
 ---
 
-## ⚙️ Configuration
-
-* **Server IP Address**:
-    * The server (`server.py`) currently binds to `192.168.50.91`. For local testing on a single machine, you can change this to `127.0.0.1`. For access across your local network, change it to `0.0.0.0` or your machine's specific LAN IP.
-    * The client application (`app.py`) attempts to connect to `192.168.50.91`. This must match the server's IP address.
-* **Port Number**:
-    * Passed as a command-line argument to `server.py`.
-    * Hardcoded as `1235` in `app.py`. This must match the port used by the server.
-* **Godot Executable Paths**:
-    * The paths are determined dynamically in `app.py` and `server.py` using the `get_godot_executable_path()` function, which checks the OS. Ensure the executables are in the `GodotGame/` directory.
-* **MongoDB URI**:
-    * Hardcoded in `server.py` as `mongodb://localhost:27017/` for the `chat_app_logs` database. Modify if your MongoDB instance is different.
-* **SQLite Database File**:
-    * Defined as `DATABASE_FILE = 'chat_app.db'` in `database.py`.
-
----
-
 ## 💡 How Minigames Work (Technical Flow)
 
 1.  A user (non-admin) in a server initiates a challenge against the current server admin via the GUI. This sends a `/challenge_server_admin <server_id>` request.
@@ -203,18 +186,4 @@ Chat-App---Final-Project/
 
 ---
 
-## 🔧 Troubleshooting
-
-* **Connection Issues**:
-    * Ensure the server is running before starting the client.
-    * Verify the IP address and port in `app.py` match the server's configuration.
-    * Check firewall settings on the server machine to allow incoming connections on the chosen port.
-* **Godot Game Not Launching**:
-    * Confirm that the `GodotGame` directory contains the correct executables (`FinalLinux.x86_64` or `FinalWindows.exe`).
-    * On Linux, ensure `FinalLinux.x86_64` and `FinalLinux.sh` have execute permissions (`chmod +x <file>`).
-    * The server log might show errors if it cannot find or execute the Godot server.
-* **"Address already in use"**: If the server fails to start with this error, another application (or a previous instance of this server) is using the port. Stop the other application or choose a different port.
-* **Database Errors**: If you encounter SQLite errors, deleting the `chat_app.db` file will allow the server to recreate it on the next run (this will erase all existing data).
-
----
 Enjoy using Chat.io!
