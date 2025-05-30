@@ -55,12 +55,11 @@
 
 ### 🏃 Parkour 
 
-![Uploading park.gif…]()
-
+![park](https://github.com/user-attachments/assets/f238e178-4481-4732-bc75-1d3783e4dbaa)
 
 ### 👑 King of the Hill
 
-
+![koth](https://github.com/user-attachments/assets/d69cc908-070d-44b3-8b15-d2c4da5d1c20)
 
 ---
 
