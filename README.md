@@ -14,7 +14,7 @@
 
 # Chat.io - A Real-Time Chat Application with Minigames
 
-**Chat.io** is a dynamic, multi-user chat application that enables users to connect to various servers, engage in real-time messaging, and challenge the admin in exciting minigames developed with the Godot Engine to become new leader of the group. The application features a robust client-server architecture, user authentication, and a rich graphical user interface built with PySide6.
+**Chat.io** is a dynamic, multi-user chat application that enables users to connect to various servers, engage in real-time messaging, and challenge the admin in exciting minigames developed with the Godot Engine to become the new leader of the group. The application features a robust client-server architecture, user authentication, and a rich graphical user interface built with PySide6.
 
 ---
 
